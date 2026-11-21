@@ -383,7 +383,23 @@ function atualizarVersao(st) {
   if (st.versao < 8) { atualizacao8(st); st.versao = 8; mudou = true; }
   if (st.versao < 9) { atualizacao9(st); st.versao = 9; mudou = true; }
   if (st.versao < 10) { atualizacao10(st); st.versao = 10; mudou = true; }
+  if (st.versao < 11) { atualizacao11(st); st.versao = 11; mudou = true; }
   return mudou;
+}
+/* Versão 11 (21/11/2026): cores na mesma ordem do catálogo, para ficar fácil de conferir.
+   Só muda a ordem das colunas; cores que não estão na lista ficam no fim, na ordem em que estavam. */
+function atualizacao11(st) {
+  const ordens = {
+    caixetas: ['Rosa', 'Rosa perolado', 'Azul lavanda', 'Roxo', 'Violeta', 'Azul claro', 'Azul perolado', 'Azul turquesa', 'Verde limão', 'Amarelo pastel', 'Amarelo', 'Laranja', 'Branco', 'Preto'],
+    baldinhos: ['Branco', 'Amarelo pastel', 'Rosa', 'Bege', 'Azul pastel', 'Verde pastel', 'Azul lavanda', 'Lilás', 'Lilás rosa'],
+    letras: ['Rosa / Dourado', 'Rosa / Azul lavanda', 'Amarelo pastel / Azul', 'Verde limão / Rosa', 'Azul lavanda / Dourado', 'Preto / Azul'],
+    cordinhas: ['Branco', 'Off-white', 'Amarelo bebê', 'Amarelo', 'Laranja', 'Vermelho', 'Rosa claro', 'Pink', 'Lilás', 'Azul claro', 'Cinza', 'Azul royal', 'Verde claro', 'Verde limão', 'Bege', 'Caramelo', 'Marrom', 'Preto']
+  };
+  for (const [catId, ordem] of Object.entries(ordens)) {
+    const c = st.categorias.find(x => x.id === catId); if (!c) continue;
+    const pos = co => { const i = ordem.findIndex(n => n.toLowerCase() === co.nome.toLowerCase()); return i < 0 ? ordem.length : i; };
+    c.colunas = c.colunas.map((co, i) => [co, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map(x => x[0]);
+  }
 }
 /* Versão 10 (21/11/2026): tons das bolinhas medidos nas fotos das peças reais. Só muda a cor da bolinha. */
 function atualizacao10(st) {

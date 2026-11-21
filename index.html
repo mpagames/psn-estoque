@@ -384,7 +384,27 @@ function atualizarVersao(st) {
   if (st.versao < 9) { atualizacao9(st); st.versao = 9; mudou = true; }
   if (st.versao < 10) { atualizacao10(st); st.versao = 10; mudou = true; }
   if (st.versao < 11) { atualizacao11(st); st.versao = 11; mudou = true; }
+  if (st.versao < 12) { atualizacao12(st); st.versao = 12; mudou = true; }
   return mudou;
+}
+/* Versão 12 (21/11/2026): cordinhas conferidas por ela.
+   Não existe cordinha cinza: aquela é o azul bebê (só troca o nome, quantidade igual).
+   Marrons em escala: Bege, Cáqui (nova), Caramelo, Marrom. Azuis: Azul bebê, Azul claro, Azul royal. */
+function atualizacao12(st) {
+  const c = st.categorias.find(x => x.id === 'cordinhas'); if (!c) return;
+  const acha = n => c.colunas.find(co => co.nome.toLowerCase() === n.toLowerCase());
+  const cz = acha('Cinza'); if (cz && !acha('Azul bebê')) Object.assign(cz, { nome: 'Azul bebê', base: 'Azul bebê' });
+  if (!acha('Cáqui')) {
+    const co = { id: 'c' + uid(), nome: 'Cáqui', base: 'Cáqui', letra: '', hex1: '#B39B7B', hex2: '' };
+    c.colunas.push(co);
+    for (const l of c.linhas) { const k = chave(c.id, l.id, co.id); st.itens[k] = Object.assign({}, st.itens[k], { ativo: true }); }
+  }
+  const tons = { 'Azul bebê': '#A9C9E8', 'Azul claro': '#5CC8EE', 'Azul royal': '#1446B8', 'Bege': '#D9BF94', 'Cáqui': '#B39B7B', 'Caramelo': '#B98A58', 'Marrom': '#8E5D38' };
+  for (const co of c.colunas) if (tons[co.nome]) co.hex1 = tons[co.nome];
+  const ordem = ['Branco', 'Off-white', 'Amarelo bebê', 'Amarelo', 'Laranja', 'Vermelho', 'Rosa claro', 'Pink', 'Lilás', 'Azul bebê', 'Azul claro', 'Azul royal',
+    'Verde claro', 'Verde limão', 'Bege', 'Cáqui', 'Caramelo', 'Marrom', 'Preto'];
+  const pos = co => { const i = ordem.findIndex(n => n.toLowerCase() === co.nome.toLowerCase()); return i < 0 ? ordem.length : i; };
+  c.colunas = c.colunas.map((co, i) => [co, i]).sort((a, b) => pos(a[0]) - pos(b[0]) || a[1] - b[1]).map(x => x[0]);
 }
 /* Versão 11 (21/11/2026): cores na mesma ordem do catálogo, para ficar fácil de conferir.
    Só muda a ordem das colunas; cores que não estão na lista ficam no fim, na ordem em que estavam. */

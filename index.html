@@ -386,7 +386,18 @@ function atualizarVersao(st) {
   if (st.versao < 11) { atualizacao11(st); st.versao = 11; mudou = true; }
   if (st.versao < 12) { atualizacao12(st); st.versao = 12; mudou = true; }
   if (st.versao < 13) { atualizacao13(st); st.versao = 13; mudou = true; }
+  if (st.versao < 14) { atualizacao14(st); st.versao = 14; mudou = true; }
   return mudou;
+}
+/* Versão 14 (21/11/2026): ela pediu para tirar as categorias "Clickers (revenda)" e "Brindes".
+   Só tira se estiverem vazias (sem nenhum lançamento); se tiverem algo, ficam, para não perder nada. */
+function atualizacao14(st) {
+  for (const id of ['clickers', 'brindes']) {
+    const temMov = st.movs.some(m => m.k.startsWith(id + '|'));
+    if (temMov) continue;
+    st.categorias = st.categorias.filter(c => c.id !== id);
+    for (const k of Object.keys(st.itens)) if (k.startsWith(id + '|')) delete st.itens[k];
+  }
 }
 /* Versão 13 (21/11/2026): pingentes brinde (formato × cor) e caixetas lisas (blocos de 1 a 10 lugares). */
 function atualizacao13(st) {
@@ -799,7 +810,11 @@ function render() {
   const f = { painel: telaPainel, estoque: telaEstoque, imprimir: telaImprimir, contagem: telaContagem, cadastros: telaCadastros, backup: telaBackup, impressao: telaImpressao, movimentos: telaMovimentos, filamentos: telaFilamentos, precos: telaPrecos }[UI.vista] || telaPainel;
   const app = $('#app');
   const foco = document.activeElement && document.activeElement.id;
+  // guarda onde cada grade estava rolada para o lado (para não voltar ao começo depois de mexer no estoque)
+  const rolagem = {};
+  for (const el of document.querySelectorAll('[data-rol]')) rolagem[el.dataset.rol] = el.scrollLeft;
   app.innerHTML = f(itens);
+  for (const el of document.querySelectorAll('[data-rol]')) if (rolagem[el.dataset.rol]) el.scrollLeft = rolagem[el.dataset.rol];
   if (foco && document.getElementById(foco)) { const el = document.getElementById(foco); el.focus(); if (el.setSelectionRange && el.type === 'search') el.setSelectionRange(el.value.length, el.value.length); }
   barraContagem();
 }
@@ -937,7 +952,7 @@ function gradeCategoria(c) {
   if (!linhasHtml) return '';
   const totalGeral = Object.values(somaCol).reduce((a, b) => a + b, 0);
   return `<div class="grade-titulo"><h2>${esc(c.nome)}</h2><span class="muted peq">mínimo padrão: ${c.minPadrao ?? S.config.minPadrao}</span></div>
-  <div class="grade-wrap"><table class="grade"><thead><tr><th class="fixa">${esc(c.rotuloLinha || 'Item')}</th>${
+  <div class="grade-wrap" data-rol="est-${esc(c.id)}"><table class="grade"><thead><tr><th class="fixa">${esc(c.rotuloLinha || 'Item')}</th>${
     cols.map(co => `<th>${amostra(co, 'Aa')}<div class="col-nome">${esc(co.nome)}</div></th>`).join('')}<th class="total">Total</th></tr></thead>
   <tbody>${linhasHtml}</tbody>
   <tfoot><tr><th class="fixa">Total</th>${cols.map(co => `<td>${somaCol[co.id] || 0}</td>`).join('')}<td>${totalGeral}</td></tr></tfoot></table></div>`;
@@ -1004,7 +1019,7 @@ function telaContagem() {
       return `<div class="it">${amostra(colSel, c.id === 'letras' ? l.nome : '', true)}<div><b>${esc(l.nome)}</b><div class="cont-agora">agora: ${q}</div></div><div style="margin-left:auto">${input(k, q, cIdx, rIdx)}</div></div>`;
     }).join('') + `</div>`;
   } else {
-    h += `<div class="grade-wrap"><table class="grade"><thead><tr><th class="fixa">${esc(c.rotuloLinha || 'Item')}</th>${c.colunas.map(co => `<th>${amostra(co, 'Aa')}<div class="col-nome">${esc(co.nome)}</div></th>`).join('')}</tr></thead><tbody>`;
+    h += `<div class="grade-wrap" data-rol="cont-${esc(c.id)}"><table class="grade"><thead><tr><th class="fixa">${esc(c.rotuloLinha || 'Item')}</th>${c.colunas.map(co => `<th>${amostra(co, 'Aa')}<div class="col-nome">${esc(co.nome)}</div></th>`).join('')}</tr></thead><tbody>`;
     c.linhas.forEach((l, rIdx) => {
       h += `<tr><th class="fixa${l.nome.length > 2 ? ' longo' : ''}">${esc(l.nome)}</th>` + c.colunas.map((co, cIdx) => {
         if (!ativo(c, l.id, co.id)) return '<td></td>';

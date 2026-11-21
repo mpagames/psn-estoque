@@ -385,7 +385,35 @@ function atualizarVersao(st) {
   if (st.versao < 10) { atualizacao10(st); st.versao = 10; mudou = true; }
   if (st.versao < 11) { atualizacao11(st); st.versao = 11; mudou = true; }
   if (st.versao < 12) { atualizacao12(st); st.versao = 12; mudou = true; }
+  if (st.versao < 13) { atualizacao13(st); st.versao = 13; mudou = true; }
   return mudou;
+}
+/* Versão 13 (21/11/2026): pingentes brinde (formato × cor) e caixetas lisas (blocos de 1 a 10 lugares). */
+function atualizacao13(st) {
+  const liga = (c, l, co) => { const k = chave(c.id, l.id, co.id); st.itens[k] = Object.assign({}, st.itens[k], { ativo: true }); };
+  // Pingentes: 5 formatos × 11 cores, logo depois das cordinhas
+  if (!st.categorias.some(c => c.id === 'pingentes')) {
+    const cores = [['Amarelo', '#F7D21E'], ['Vermelho', '#D93636'], ['Cinza', '#8E99A8'], ['Preto', '#2A2A2A'], ['Laranja', '#F68650'], ['Verde limão', '#A6E6B2'],
+      ['Amarelo pastel', '#EFEB9E'], ['Azul lavanda', '#C9CBF0'], ['Violeta', '#6B3FE0'], ['Pink', '#F27DBA'], ['Branco', '#FFFFFF']];
+    const c = { id: 'pingentes', nome: 'Pingentes (brinde)', todas: false, minPadrao: null, rotuloLinha: 'Formato',
+      linhas: ['Flor', 'Concha', 'Margarida', 'Borboleta', 'Coração'].map(n => ({ id: 'M' + uid(), nome: n })),
+      colunas: cores.map(([n, h]) => ({ id: 'c' + uid(), nome: n, base: n, letra: '', hex1: h, hex2: '' })) };
+    const i = st.categorias.findIndex(x => x.id === 'cordinhas');
+    st.categorias.splice(i >= 0 ? i + 1 : st.categorias.length, 0, c);
+    for (const l of c.linhas) for (const co of c.colunas) liga(c, l, co);
+  }
+  // Caixetas: a de sempre vira "Ondulada"; entram as lisas, em blocos de 1 a 10 lugares (por enquanto só na cor preta)
+  const cx = st.categorias.find(c => c.id === 'caixetas');
+  if (cx) {
+    const atual = cx.linhas.find(l => l.nome.toLowerCase() === 'caixeta'); if (atual) atual.nome = 'Ondulada';
+    let preto = cx.colunas.find(co => co.nome.toLowerCase() === 'preto');
+    if (!preto) { preto = { id: 'c' + uid(), nome: 'Preto', base: 'Preto', letra: '', hex1: '#2A2A2A', hex2: '' }; cx.colunas.push(preto); }
+    for (let n = 1; n <= 10; n++) {
+      const nome = 'Lisa ' + n + (n === 1 ? ' lugar' : ' lugares');
+      if (cx.linhas.some(l => l.nome.toLowerCase() === nome.toLowerCase())) continue;
+      const l = { id: 'M' + uid(), nome }; cx.linhas.push(l); liga(cx, l, preto);
+    }
+  }
 }
 /* Versão 12 (21/11/2026): cordinhas conferidas por ela.
    Não existe cordinha cinza: aquela é o azul bebê (só troca o nome, quantidade igual).

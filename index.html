@@ -284,7 +284,9 @@ const CORES = [
   ['Azul claro','#C9D3F2'],['Mostarda','#E0A526'],['Marrom','#9A5B2E'],['Bege','#D9BF94'],['Cinza','#8E8E93'],
   ['Verde-água','#A9DCD6'],['Verde claro','#C6E3A6'],['Lavanda','#B9BDEB'],['Lilás rosado','#D58BE0'],['Turquesa','#5CC9C2'],
   ['Azul metálico','#4C8FB8'],['Rosa perolado','#EBC3DE'],['Amarelo claro','#EEEB7A'],['Violeta','#5B3BC9'],['Off-white','#EFE4CF'],
-  ['Amarelo bebê','#F3E3A0'],['Rosa claro','#F4A6BE'],['Pink','#E8457A'],['Azul royal','#1F3FA6'],['Verde limão','#7CC832'],['Caramelo','#9A6232'],['Dourado','#C9A227']
+  ['Amarelo bebê','#F3E3A0'],['Rosa claro','#F4A6BE'],['Pink','#E8457A'],['Azul royal','#1F3FA6'],['Verde limão','#7CC832'],['Caramelo','#9A6232'],['Dourado','#C9A227'],
+  ['Azul lavanda','#C4C6F0'],['Azul perolado','#3FA9C4'],['Azul turquesa','#5CC9C2'],['Amarelo pastel','#F2EC9A'],['Verde pastel','#C6EBB4'],
+  ['Azul pastel','#A9DCE0'],['Lilás rosa','#D58BE0']
 ];
 const hexDaCor = nome => (CORES.find(c => c[0].toLowerCase() === String(nome||'').toLowerCase()) || [,'#cccccc'])[1];
 
@@ -379,7 +381,42 @@ function atualizarVersao(st) {
   if (st.versao < 6) { atualizacao6(st); st.versao = 6; mudou = true; }
   if (st.versao < 7) { atualizacao7(st); st.versao = 7; mudou = true; }
   if (st.versao < 8) { atualizacao8(st); st.versao = 8; mudou = true; }
+  if (st.versao < 9) { atualizacao9(st); st.versao = 9; mudou = true; }
   return mudou;
+}
+/* Versão 9 (21/11/2026): nomes certos das cores, pelas etiquetas da foto dela.
+   Só troca nomes (e a corzinha da bolinha); as quantidades continuam as mesmas.
+   Se o nome novo já existir na mesma categoria, junta as duas colunas sem perder nada. */
+function atualizacao9(st) {
+  const renomeia = (catId, de, para, extra) => {
+    const c = st.categorias.find(x => x.id === catId); if (!c) return;
+    const velha = c.colunas.find(co => co.nome.toLowerCase() === de.toLowerCase()); if (!velha) return;
+    const nova = c.colunas.find(co => co !== velha && co.nome.toLowerCase() === para.toLowerCase());
+    if (nova) {
+      for (const l of c.linhas) {
+        const kVelha = chave(c.id, l.id, velha.id), kNova = chave(c.id, l.id, nova.id);
+        for (const m of st.movs) if (m.k === kVelha) m.k = kNova;
+        if (st.itens[kVelha]) { st.itens[kNova] = Object.assign({}, st.itens[kVelha], st.itens[kNova]); delete st.itens[kVelha]; }
+      }
+      c.colunas = c.colunas.filter(co => co !== velha);
+      Object.assign(nova, extra || {});
+    } else Object.assign(velha, { nome: para }, extra || {});
+  };
+  const simples = (catId, pares) => { for (const [de, para, hex] of pares) renomeia(catId, de, para, { base: para, hex1: hex }); };
+  simples('caixetas', [
+    ['Lilás', 'Azul lavanda', '#C4C6F0'], ['Azul metálico', 'Azul perolado', '#3FA9C4'], ['Turquesa', 'Azul turquesa', '#5CC9C2'],
+    ['Verde', 'Verde limão', '#9FE08E'], ['Amarelo claro', 'Amarelo pastel', '#F2EC9A']
+  ]);
+  simples('baldinhos', [
+    ['Lavanda', 'Azul lavanda', '#C4C6F0'], ['Lilás rosado', 'Lilás rosa', '#D58BE0'], ['Amarelo', 'Amarelo pastel', '#F2EC9A'],
+    ['Verde claro', 'Verde pastel', '#C6EBB4'], ['Verde-água', 'Azul pastel', '#A9DCE0']
+  ]);
+  for (const [de, b, l, h1, h2] of [
+    ['Lilás / Dourado', 'Azul lavanda', 'Dourado', '#C4C6F0', '#C9A227'],
+    ['Verde / Rosa', 'Verde limão', 'Rosa', '#9FE08E', '#F4A6C6'],
+    ['Amarelo / Azul', 'Amarelo pastel', 'Azul', '#F2EC9A', '#2F63C9'],
+    ['Rosa / Azul claro', 'Rosa', 'Azul lavanda', '#F4A6C6', '#C4C6F0']
+  ]) renomeia('letras', de, b + ' / ' + l, { base: b, letra: l, hex1: h1, hex2: h2 });
 }
 /* Versão 8: a letra da caixa rosa também é dourada (não mostarda). Só troca o nome. */
 function atualizacao8(st) {
@@ -2227,8 +2264,10 @@ async function baixarDaNuvem(m) {
   try {
     const st = await lerDaNuvem(m);
     if (!validarEstado(st)) throw new Error('inválido');
+    const vAntes = st.versao;
     S = normalizar(st); NUVEM.rev = m.rev; guardarRev(m.rev);
     try { localStorage.setItem(CHAVE, JSON.stringify(S)); } catch (e) {}
+    if (S.versao !== vAntes) setTimeout(agendarNuvem, 0);   // dados atualizados para a versão nova: salva na conta
     pilhaDesfazer = [];   // o "Desfazer" não volta mudanças feitas em outro aparelho
     statusNuvem('ok'); render();
   } catch (e) { console.warn('nuvem', e); statusNuvem('erro', '⚠️ Não consegui carregar da conta'); }

@@ -1215,7 +1215,17 @@ function normalizar(st) {
 /* ---------- filamento ---------- */
 function saldosRolos() { const o = {}; for (const m of S.filmovs) o[m.rolo] = (o[m.rolo] || 0) + m.g; return o; }
 function statusRolo(r, g) { if (g <= 0) return 'zero'; if (g < (r.aviso ?? S.config.filAviso)) return 'baixo'; return 'ok'; }
-const nomeRolo = r => 'nº ' + r.num + ' · ' + [r.material, r.cor, r.marca].filter(Boolean).join(' ');
+/* cor PSN + marca e nome que o fabricante dá para a cor (ex.: Azul lavanda · Flashforge Azul Ardósia) */
+const descRolo = (r, sep = ' · ') => [r.material, r.cor, [r.marca, r.fab].filter(Boolean).join(' ')].filter(Boolean).join(sep);
+const nomeRolo = r => 'nº ' + r.num + ' · ' + descRolo(r, ' ');
+/* todas as cores usadas no estoque (caixetas, letras, baldinhos...), com a bolinha de cada uma */
+function coresDoEstoque() {
+  const m = new Map();
+  const add = (n, h) => { n = String(n || '').trim(); if (!n || n === 'Única') return; const k = semAcento(n); if (!m.has(k)) m.set(k, { nome: n, hex: h }); };
+  for (const c of S.categorias) for (const co of c.colunas) { add(co.base || co.nome, co.hex1); if (co.letra) add(co.letra, co.hex2); }
+  for (const [n, h] of CORES) add(n, h);
+  return [...m.values()].sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+}
 function rolosAcabando() { const s = saldosRolos(); return S.rolos.filter(r => !r.arquivado && statusRolo(r, s[r.id] || 0) !== 'ok'); }
 function opcoesRolos(sel) {
   const sal = saldosRolos();
@@ -1659,7 +1669,7 @@ function cardRolo(r, g) {
   const bt = (a, t, cls = 'borda') => `<button class="btn mini ${cls}" data-a="${a}" data-id="${r.id}">${t}</button>`;
   return `<div class="rolo" style="border-top-color:${esc(r.hex || '#ccc')}">
     <div style="display:flex;justify-content:space-between;align-items:start;gap:8px"><div><span class="bolinha" style="background:${esc(r.hex || '#ccc')}"></span> <b>Rolo nº ${r.num}</b>
-      <div class="peq muted">${esc([r.material, r.cor, r.marca].filter(Boolean).join(' · '))}</div></div>
+      <div class="peq muted">${esc(descRolo(r))}</div></div>
       ${r.arquivado ? '<span class="tag">arquivado</span>' : `<span class="tag ${st}">${st === 'zero' ? 'acabou' : st === 'baixo' ? 'acabando' : 'ok'}</span>`}</div>
     <div class="g" style="color:${cor}">${fmtN(g, 0)} g</div>
     <div class="progresso"><span style="width:${pct}%;background:${cor}"></span></div>
@@ -1682,12 +1692,16 @@ function formulario(titulo, corpo, botao = 'Salvar', aoAbrir) {
 }
 async function abrirRolo(id) {
   const r = id ? S.rolos.find(x => x.id === id) : null;
-  const v = r || { cor: '', material: 'PLA', marca: '', peso: 1000, preco: '', aviso: null, hex: '#cccccc' };
-  const corpo = `<div class="linha-btns" style="align-items:end"><label class="campo" style="flex:1"><span>Cor</span><input type="text" name="cor" list="dlCores" value="${esc(v.cor)}" required placeholder="ex.: Rosa"></label>
+  const v = r || { cor: '', material: 'PLA', marca: '', fab: '', peso: 1000, preco: '', aviso: null, hex: '#cccccc' };
+  const lista = coresDoEstoque();
+  const corpo = `<div class="linha-btns" style="align-items:end"><label class="campo" style="flex:1"><span>Cor (nome PSN, igual ao do estoque)</span><input type="text" name="cor" list="dlCores" value="${esc(v.cor)}" required placeholder="toque e escolha da lista"></label>
       <label class="campo"><span>Amostra</span><input type="color" name="hex" value="${esc(v.hex || '#cccccc')}"></label></div>
-    <datalist id="dlCores">${CORES.map(c => `<option value="${c[0]}">`).join('')}</datalist>
-    <div class="linha-btns"><label class="campo" style="flex:1"><span>Material</span><input type="text" name="material" list="dlMat" value="${esc(v.material)}"></label>
-      <label class="campo" style="flex:1"><span>Marca (opcional)</span><input type="text" name="marca" value="${esc(v.marca)}"></label></div>
+    <datalist id="dlCores">${lista.map(c => `<option value="${esc(c.nome)}">`).join('')}</datalist>
+    <div class="linha-btns"><label class="campo" style="flex:1"><span>Marca</span><input type="text" name="marca" list="dlMarcas" value="${esc(v.marca)}" placeholder="ex.: Flashforge"></label>
+      <label class="campo" style="flex:1"><span>Nome no fabricante</span><input type="text" name="fab" value="${esc(v.fab || '')}" placeholder="ex.: Azul Ardósia"></label></div>
+    <datalist id="dlMarcas">${[...new Set(S.rolos.map(x => (x.marca || '').trim()).filter(Boolean))].sort().map(x => `<option value="${esc(x)}">`).join('')}</datalist>
+    <p class="peq muted" style="margin-top:-4px">Use o <b>nome PSN</b> na cor (o mesmo das caixetas e letras) e o nome da embalagem em “Nome no fabricante”. Assim você sabe o que comprar quando acabar.</p>
+    <div class="linha-btns"><label class="campo" style="flex:1"><span>Material</span><input type="text" name="material" list="dlMat" value="${esc(v.material)}"></label></div>
     <datalist id="dlMat">${['PLA', 'PLA Matte', 'PLA Silk', 'PETG', 'ABS', 'TPU'].map(m => `<option value="${m}">`).join('')}</datalist>
     <div class="linha-btns"><label class="campo"><span>Filamento no rolo (g)</span><input type="text" inputmode="decimal" name="peso" value="${fmtIn(v.peso)}" style="width:120px"></label>
       <label class="campo"><span>Preço pago (R$)</span><input type="text" inputmode="decimal" name="preco" value="${fmtIn(v.preco)}" placeholder="opcional" style="width:120px"></label>
@@ -1695,12 +1709,13 @@ async function abrirRolo(id) {
     ${r ? `<p class="peq muted">Para corrigir quanto sobrou no rolo, use o botão “Pesei”.</p>` : `<label class="campo"><span>Quantos rolos iguais a este?</span><input type="text" inputmode="numeric" name="qtd" value="1" style="width:80px"></label>
       <p class="peq muted">Com o preço pago, o custo das peças usa o valor real deste rolo. Sem preço, uso o R$/kg geral.</p>`}`;
   const d = await formulario(r ? 'Editar rolo nº ' + r.num : 'Novo rolo', corpo, r ? 'Salvar' : 'Cadastrar', f => {
-    dlg.oninput = e => { if (e.target.name === 'cor') { const hx = hexDaCor(e.target.value.trim()); if (hx !== '#cccccc') f.hex.value = hx; } };
+    dlg.oninput = e => { if (e.target.name === 'cor') { const ac = lista.find(c => semAcento(c.nome) === semAcento(e.target.value.trim())); if (ac && ac.hex) f.hex.value = ac.hex.toLowerCase(); } };
   });
   if (!d) return;
   const peso = num(d.peso), preco = num(d.preco), qtd = Math.max(1, Math.min(50, Math.round(num(d.qtd || 1))));
   if (!d.cor.trim() || !(peso > 0)) return alerta('Faltou informação', 'Preencha a cor e quantos gramas de filamento vêm no rolo.');
-  const dados = { cor: d.cor.trim(), hex: d.hex, material: d.material.trim(), marca: d.marca.trim(), peso, preco: preco > 0 ? preco : null,
+  const igual = lista.find(c => semAcento(c.nome) === semAcento(d.cor.trim()));
+  const dados = { cor: igual ? igual.nome : d.cor.trim(), hex: d.hex, material: d.material.trim(), marca: d.marca.trim(), fab: (d.fab || '').trim(), peso, preco: preco > 0 ? preco : null,
     precoKg: preco > 0 ? preco / peso * 1000 : null, aviso: String(d.aviso).trim() === '' ? null : num(d.aviso) };
   if (r) {
     acao('editar rolo nº ' + r.num, () => {
@@ -1750,7 +1765,7 @@ function histRolo(id) {
   const r = S.rolos.find(x => x.id === id);
   const ms = S.filmovs.filter(f => f.rolo === id).slice().reverse();
   const rot = { novo: 'rolo novo', impressao: 'impressão', uso: 'uso', pesagem: 'pesagem' };
-  abrirDialogo(`<div class="dlg-corpo"><h2>Rolo nº ${r.num}</h2><p class="muted">${esc([r.material, r.cor, r.marca].filter(Boolean).join(' · '))}</p>
+  abrirDialogo(`<div class="dlg-corpo"><h2>Rolo nº ${r.num}</h2><p class="muted">${esc(descRolo(r))}</p>
     <div class="hist">${ms.map(m => `<div><span class="d">${fmtData(m.t)}</span><span class="v" style="min-width:70px;color:${m.g > 0 ? 'var(--ok)' : 'var(--zero)'}">${m.g > 0 ? '+' : '−'}${fmtN(Math.abs(m.g), 1)} g</span><span>${esc(rot[m.tipo] || m.tipo)}${m.obs ? ' <span class="muted">· ' + esc(m.obs) + '</span>' : ''}</span></div>`).join('') || '<span class="muted">Sem movimentos.</span>'}</div></div>
     <div class="dlg-pe"><button class="btn prim" data-r="1">Fechar</button></div>`);
   dlg.onclick = e => { if (e.target.closest('[data-r]')) { dlg.close(); dlg.onclick = null; } };
@@ -2242,7 +2257,7 @@ td.l,th.l{text-align:left}
   // Filamentos
   const sal = saldosRolos(), rol = S.rolos.filter(r => !r.arquivado);
   if (rol.length) h += `<details><summary>Filamentos <span>(${rol.length} rolos)</span></summary><table><tr><th class="l">Rolo</th><th>Sobra</th></tr>` +
-    rol.map(r => { const g = sal[r.id] || 0, st = statusRolo(r, g); return `<tr><td class="l"><span class="bo" style="background:${esc(r.hex)}"></span> nº ${r.num} · ${esc([r.material, r.cor, r.marca].filter(Boolean).join(' '))}</td><td><span class="c" style="background:${cores[st][0]};color:${cores[st][1]}">${fmtN(g, 0)} g</span></td></tr>`; }).join('') + `</table></details>`;
+    rol.map(r => { const g = sal[r.id] || 0, st = statusRolo(r, g); return `<tr><td class="l"><span class="bo" style="background:${esc(r.hex)}"></span> nº ${r.num} · ${esc(descRolo(r, ' '))}</td><td><span class="c" style="background:${cores[st][0]};color:${cores[st][1]}">${fmtN(g, 0)} g</span></td></tr>`; }).join('') + `</table></details>`;
   // Preços
   const prs = produtos().map(p => ({ p, fi: fichaDe(p.pid) })).filter(o => fichaPreenchida(o.fi) || num(o.fi.manual) > 0).map(o => ({ ...o, r: calcPreco(o.fi) })).filter(o => o.r.preco > 0);
   if (prs.length) h += `<details><summary>Preços <span>(${prs.length})</span></summary><table><tr><th class="l">Produto</th><th>Preço</th><th>Desc. máx.</th></tr>` +
@@ -2622,9 +2637,9 @@ function exportarXlsx() {
   }
   abas.push({ nome: 'Movimentos', larguras: [18, 18, 18, 22, 16, 12, 50], linhas: M });
   const sal = saldosRolos();
-  const F = [[H('Rolo nº'), H('Material'), H('Cor'), H('Marca'), H('Filamento inicial (g)'), H('Sobrou (g)'), H('Situação'), H('R$ por kg'), H('Arquivado')]];
-  for (const r of S.rolos) { const g = sal[r.id] || 0, st = statusRolo(r, g); F.push([r.num, r.material, r.cor, r.marca, r.peso, Math.round(g * 10) / 10, { v: st === 'zero' ? 'Acabou' : st === 'baixo' ? 'Acabando' : 'OK', s: ESTILO_ST[st] }, r.precoKg ? round2(r.precoKg) : '', r.arquivado ? 'sim' : '']); }
-  abas.push({ nome: 'Filamentos', larguras: [9, 12, 14, 14, 18, 12, 12, 11, 10], linhas: F });
+  const F = [[H('Rolo nº'), H('Material'), H('Cor (PSN)'), H('Marca'), H('Nome no fabricante'), H('Filamento inicial (g)'), H('Sobrou (g)'), H('Situação'), H('R$ por kg'), H('Arquivado')]];
+  for (const r of S.rolos) { const g = sal[r.id] || 0, st = statusRolo(r, g); F.push([r.num, r.material, r.cor, r.marca, r.fab || '', r.peso, Math.round(g * 10) / 10, { v: st === 'zero' ? 'Acabou' : st === 'baixo' ? 'Acabando' : 'OK', s: ESTILO_ST[st] }, r.precoKg ? round2(r.precoKg) : '', r.arquivado ? 'sim' : '']); }
+  abas.push({ nome: 'Filamentos', larguras: [9, 12, 16, 14, 18, 18, 12, 12, 11, 10], linhas: F });
   const I = [[H('Impressão nº'), H('Data'), H('Peça'), H('Qtd'), H('Peso de 1 (g)'), H('Filamento por peça (g)'), H('Tempo por peça (min)'), H('Custo de 1 (R$)'), H('Observação')]];
   for (const imp of S.impressoes.slice().reverse()) for (const x of imp.linhas) I.push([imp.num, fmtData(imp.t), x.nome, x.q, x.peso || '', round2(x.g), Math.round(x.h * 600) / 10, x.custo != null ? round2(x.custo) : '', imp.obs]);
   abas.push({ nome: 'Impressões', larguras: [12, 18, 28, 7, 13, 20, 20, 15, 30], linhas: I });

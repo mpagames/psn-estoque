@@ -382,7 +382,27 @@ function atualizarVersao(st) {
   if (st.versao < 7) { atualizacao7(st); st.versao = 7; mudou = true; }
   if (st.versao < 8) { atualizacao8(st); st.versao = 8; mudou = true; }
   if (st.versao < 9) { atualizacao9(st); st.versao = 9; mudou = true; }
+  if (st.versao < 10) { atualizacao10(st); st.versao = 10; mudou = true; }
   return mudou;
+}
+/* Versão 10 (21/11/2026): tons das bolinhas medidos nas fotos das peças reais. Só muda a cor da bolinha. */
+function atualizacao10(st) {
+  const tons = {
+    caixetas: { 'Rosa': '#F0B2D2', 'Rosa perolado': '#EED3E8', 'Azul lavanda': '#C9CBF0', 'Roxo': '#8763D2', 'Violeta': '#6B3FE0', 'Azul claro': '#9CCDF0',
+      'Azul perolado': '#52AEDB', 'Azul turquesa': '#4FC4DB', 'Verde limão': '#A6E6B2', 'Amarelo pastel': '#EFEB9E', 'Amarelo': '#F7BC00', 'Laranja': '#F68650', 'Branco': '#FFFFFF', 'Preto': '#2A2A2A' },
+    baldinhos: { 'Branco': '#FFFFFF', 'Amarelo pastel': '#EFEB9E', 'Rosa': '#EDA9CB', 'Bege': '#D8C3A0', 'Azul pastel': '#A2DDF0', 'Verde pastel': '#CDEBC4',
+      'Azul lavanda': '#C9CBF0', 'Lilás': '#C2B6EC', 'Lilás rosa': '#E7B5EF' }
+  };
+  for (const [catId, mapa] of Object.entries(tons)) {
+    const c = st.categorias.find(x => x.id === catId); if (!c) continue;
+    for (const co of c.colunas) if (mapa[co.nome]) co.hex1 = mapa[co.nome];
+  }
+  const base = { 'Rosa': '#F0B2D2', 'Azul lavanda': '#C9CBF0', 'Verde limão': '#A6E6B2', 'Amarelo pastel': '#EFEB9E', 'Preto': '#2A2A2A' };
+  const lt = st.categorias.find(x => x.id === 'letras');
+  if (lt) for (const co of lt.colunas) {
+    if (base[co.base]) co.hex1 = base[co.base];
+    if (co.letra === 'Azul lavanda') co.hex2 = '#C9CBF0';
+  }
 }
 /* Versão 9 (21/11/2026): nomes certos das cores, pelas etiquetas da foto dela.
    Só troca nomes (e a corzinha da bolinha); as quantidades continuam as mesmas.
@@ -590,7 +610,7 @@ let Q = {};         // quantidades calculadas
 function carregar() {
   try { S = JSON.parse(localStorage.getItem(CHAVE)); } catch (e) { S = null; }
   if (!S || !Array.isArray(S.categorias)) { S = estadoInicial(); gravar(); }
-  const antes = JSON.stringify(S); normalizar(S); if (JSON.stringify(S) !== antes) gravar();
+  const antes = JSON.stringify(S); normalizar(S); if (JSON.stringify(S) !== antes) { gravar(); NUVEM.migrou = true; }
   try { UI = JSON.parse(localStorage.getItem(CHAVE_UI)) || {}; } catch (e) { UI = {}; }
   UI = Object.assign({ vista: 'painel', cat: 'letras', busca: '', cor: '', situacao: 'todos', impCat: 'todas', contCat: 'letras', contCol: '', cadCat: 'letras', h: { busca: '', tipo: '', cat: '', de: '', ate: '', n: 100 } }, UI);
   if (!UI.mesa || !Array.isArray(UI.mesa.linhas) || !Array.isArray(UI.mesa.rolos)) UI.mesa = novaMesa();
@@ -2195,6 +2215,8 @@ async function conectarNuvem(db) {
     else { const m = snap.data(); if (m.rev !== NUVEM.rev) await baixarDaNuvem(m); else statusNuvem('ok'); }
   } catch (e) { clearTimeout(limite); statusNuvem('erro'); }
   NUVEM.ativa = true;
+  // o sistema foi atualizado neste aparelho (nomes novos etc.): manda a versão atualizada para a conta
+  if (NUVEM.migrou && NUVEM.status === 'ok') { NUVEM.migrou = false; agendarNuvem(); }
   db.doc('estoque/meta').onSnapshot(async s => {
     if (!s.exists || s.metadata.hasPendingWrites) return;
     const m = s.data();

@@ -92,6 +92,7 @@ input:focus,select:focus{outline:2px solid var(--roxo-claro);outline-offset:1px}
 .vd .vd-add select{max-width:100%}
 .vd .vd-colar{margin-top:10px;display:flex;flex-direction:column;gap:6px;align-items:flex-start} .vd .vd-colar textarea{width:100%}
 @media(max-width:560px){.vd .vd-item{grid-template-columns:auto 1fr auto;}.vd .vd-item input{grid-column:2}.vd .vd-item .btn{grid-column:3}}
+.subabas{display:flex;gap:6px;flex-wrap:wrap;margin:0 0 16px;padding-bottom:12px;border-bottom:1.5px solid var(--borda)}
 .chip .badge{background:var(--roxo);color:#fff;border-radius:999px;padding:0 7px;font-size:.75rem;margin-left:4px}
 .fin-barras{display:flex;gap:8px;align-items:flex-end;height:190px;padding:6px 0}
 .fin-col{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;border-radius:10px;padding:4px 2px;height:100%}
@@ -824,24 +825,35 @@ function somar(k, d) {
 /* =====================================================================
    TELAS
    ===================================================================== */
-const VISTAS = [
-  ['painel', 'Painel'], ['estoque', 'Estoque'], ['imprimir', 'O que imprimir'], ['impressao', 'Impressão'],
-  ['movimentos', 'Movimentos'], ['filamentos', 'Filamentos'], ['precos', 'Preços'], ['financeiro', 'Financeiro'], ['contagem', 'Contagem'], ['cadastros', 'Cadastros'], ['backup', 'Backup e planilha']
+/* As abas ficam agrupadas em seções; cada seção tem as suas partes logo embaixo */
+const SECOES_APP = [
+  { id: 'resumo', nome: 'Resumo da empresa', vistas: [['painel', 'Resumo']] },
+  { id: 'estoque', nome: 'Estoque', vistas: [['estoque', 'Estoque'], ['contagem', 'Contagem'], ['cadastros', 'Cadastros']] },
+  { id: 'impressoes', nome: 'Impressões', vistas: [['imprimir', 'O que imprimir'], ['impressao', 'Registrar impressão'], ['filamentos', 'Filamentos']] },
+  { id: 'financeiro', nome: 'Financeiro', vistas: [['fin:resumo', 'Resumo do mês'], ['fin:lanc', 'Entradas e saídas'], ['fin:contas', 'Contas a pagar'], ['fin:fixas', 'Contas fixas'], ['precos', 'Preços']] },
+  { id: 'backup', nome: 'Backup', vistas: [['backup', 'Backup e planilha']] }
 ];
+const VISTAS = SECOES_APP.flatMap(x => x.vistas);
+const vistaAtual = () => UI.vista === 'financeiro' ? 'fin:' + (UI.finAba || 'resumo') : UI.vista;
+const secaoAtual = () => SECOES_APP.find(x => x.vistas.some(v => v[0] === vistaAtual())) || SECOES_APP.find(x => x.id === (UI.vista === 'movimentos' ? 'estoque' : 'resumo'));
 
 function render() {
+  if (UI.vista === 'movimentos') UI.vista = 'estoque';   // a aba Movimentos saiu (o histórico fica em cada item)
   calcular();
   const itens = todosItens();
   const nImp = itens.filter(i => i.st === 'zero' || i.st === 'baixo').length;
   const nCont = Object.keys(edicoesContagem).length;
   const nFil = rolosAcabando().length;
   const nFin = contasUrgentes().length;
-  $('#abas').innerHTML = VISTAS.map(([id, nome]) =>
-    `<button class="${UI.vista === id ? 'ativa' : ''}" data-a="vista" data-v="${id}">${nome}${
-      id === 'imprimir' && nImp ? `<span class="badge" style="background:var(--zero)">${nImp}</span>` :
-      id === 'filamentos' && nFil ? `<span class="badge" style="background:#E0A800">${nFil}</span>` :
-      id === 'contagem' && nCont ? `<span class="badge">${nCont}</span>` :
-      id === 'financeiro' && nFin ? `<span class="badge" style="background:var(--zero)">${nFin}</span>` : ''}</button>`).join('');
+  const nAb = contasAbertas().length;
+  const badge = (n, cor) => n ? `<span class="badge"${cor ? ` style="background:${cor}"` : ''}>${n}</span>` : '';
+  const sa = secaoAtual(), va = vistaAtual();
+  UI.ultSub = UI.ultSub || {};
+  if (sa && sa.vistas.some(v => v[0] === va)) UI.ultSub[sa.id] = va;
+  $('#abas').innerHTML = SECOES_APP.map(x => `<button class="${sa && sa.id === x.id ? 'ativa' : ''}" data-a="vista" data-v="${esc(UI.ultSub[x.id] || x.vistas[0][0])}">${x.nome}${
+      x.id === 'impressoes' ? badge(nImp, 'var(--zero)') : x.id === 'estoque' ? badge(nCont) : x.id === 'financeiro' ? badge(nFin, 'var(--zero)') : ''}</button>`).join('');
+  const subHtml = sa && sa.vistas.length > 1 ? `<div class="subabas">${sa.vistas.map(([id, nome]) => `<button class="chip ${va === id ? 'ativo' : ''}" data-a="vista" data-v="${id}">${nome}${
+      id === 'imprimir' ? badge(nImp, 'var(--zero)') : id === 'filamentos' ? badge(nFil, '#E0A800') : id === 'contagem' ? badge(nCont) : id === 'fin:contas' ? badge(nAb, nFin ? 'var(--zero)' : 'var(--roxo)') : ''}</button>`).join('')}</div>` : '';
   const bd = $('#btnDesfazer');
   const u = pilhaDesfazer[pilhaDesfazer.length - 1];
   bd.disabled = !u;
@@ -852,7 +864,7 @@ function render() {
   // guarda onde cada grade estava rolada para o lado (para não voltar ao começo depois de mexer no estoque)
   const rolagem = {};
   for (const el of document.querySelectorAll('[data-rol]')) rolagem[el.dataset.rol] = el.scrollLeft;
-  app.innerHTML = f(itens);
+  app.innerHTML = subHtml + f(itens);
   for (const el of document.querySelectorAll('[data-rol]')) if (rolagem[el.dataset.rol]) el.scrollLeft = rolagem[el.dataset.rol];
   if (foco && document.getElementById(foco)) { const el = document.getElementById(foco); el.focus(); if (el.setSelectionRange && el.type === 'search') el.setSelectionRange(el.value.length, el.value.length); }
   barraContagem();
@@ -936,8 +948,7 @@ function telaFinanceiro() {
   if (S.finFixas.length && gerarFixas(hoje)) setTimeout(gravar, 0);
   const abas = [['resumo', 'Resumo do mês'], ['lanc', 'Entradas e saídas'], ['contas', 'Contas a pagar'], ['fixas', 'Contas fixas']];
   const nAb = contasAbertas().length;
-  let h = `<div class="linha-btns" style="justify-content:space-between;align-items:center;margin-bottom:12px">
-    <div class="chips" style="margin:0">${abas.map(([id, n]) => `<button class="chip ${UI.finAba === id ? 'ativo' : ''}" data-a="finAba" data-v="${id}">${n}${id === 'contas' && nAb ? ` <span class="badge" style="background:${contasUrgentes().length ? 'var(--zero)' : 'var(--roxo)'}">${nAb}</span>` : ''}</button>`).join('')}</div>
+  let h = `<div class="linha-btns" style="justify-content:flex-end;align-items:center;margin-bottom:12px">
     <div class="linha-btns"><button class="btn prim" data-a="finNovo" data-t="ent">+ Nova venda</button><button class="btn borda" data-a="finNovo" data-t="sai">+ Novo gasto</button></div></div>`;
   if (UI.finAba === 'lanc') return h + finLancamentos();
   if (UI.finAba === 'contas') return h + finContas();
@@ -2052,7 +2063,8 @@ function calcMesa(m) {
 }
 function telaImpressao() {
   const m = UI.mesa, temRolos = S.rolos.some(r => !r.arquivado);
-  let h = `<div class="aviso lilas"><div><b>Mesa de impressão:</b> coloque tudo o que foi junto na mesma impressão. O filamento e o tempo da mesa
+  let h = m.editando ? `<div class="aviso amarelo"><div>✎ <b>Editando a impressão nº ${(S.impressoes.find(x => x.id === m.editando) || {}).num || ''}</b>. Corrija as peças, o filamento (use “+ Outro rolo” para outra cor) ou o tempo e toque em <b>Salvar alterações</b>.</div></div>` : '';
+  h += `<div class="aviso lilas"><div><b>Mesa de impressão:</b> coloque tudo o que foi junto na mesma impressão. O filamento e o tempo da mesa
     são divididos entre as peças <b>pelo peso de cada uma</b> (a purga também). Ao registrar, as peças entram no estoque e o filamento sai do rolo.</div></div>`;
   h += `<div class="cartao"><h2>1. Peças na mesa</h2>${editorLinhas('mesa')}
     <div class="linha-btns" style="margin-top:8px"><button class="btn mini borda" data-a="edAdd" data-ed="mesa">+ Outra peça</button>
@@ -2073,8 +2085,8 @@ function telaImpressao() {
       <label class="mini-campo">Data<input type="date" data-mf="dia" value="${m.dia || hojeISO()}" max="${hojeISO()}" style="width:auto"></label>
       <label class="mini-campo" style="flex:1;min-width:180px">Observação (opcional)<input type="text" data-mf="obs" value="${esc(m.obs)}" style="width:100%"></label></div></div>`;
   h += `<div class="cartao"><h2>3. Custo de cada peça</h2><div id="mesaRes">${htmlMesaRes()}</div>
-    <div class="linha-btns" style="margin-top:14px"><button class="btn ok" data-a="mesaRegistrar">✓ Registrar impressão</button>
-    <button class="btn borda" data-a="mesaLimpar">Limpar mesa</button></div></div>`;
+    <div class="linha-btns" style="margin-top:14px">${m.editando ? `<button class="btn ok" data-a="mesaRegistrar">✓ Salvar alterações</button><button class="btn borda" data-a="mesaCancelarEd">Cancelar edição</button>`
+      : `<button class="btn ok" data-a="mesaRegistrar">✓ Registrar impressão</button><button class="btn borda" data-a="mesaLimpar">Limpar mesa</button>`}</div></div>`;
   h += cardParametros();
   h += listaImpressoes();
   return h;
@@ -2125,7 +2137,7 @@ function listaImpressoes() {
     imps.slice(0, 60).map(i => `<tr><td><b>${i.num}</b></td><td class="peq muted">${fmtData(i.t)}</td>
       <td class="peq">${esc(i.linhas.map(x => x.q + '× ' + x.nome).join(', ')).slice(0, 140)}</td>
       <td class="r-esconde" style="text-align:right">${fmtN(i.gTotal, 0)} g</td><td class="r-esconde" style="text-align:right">${i.total != null ? fmtR(i.total) : '—'}</td>
-      <td style="text-align:right;white-space:nowrap"><button class="btn mini borda" data-a="impVer" data-id="${i.id}">Ver</button> <button class="btn mini perigo" data-a="impDesfazer" data-id="${i.id}">Desfazer</button></td></tr>`).join('') +
+      <td style="text-align:right;white-space:nowrap"><button class="btn mini borda" data-a="impVer" data-id="${i.id}">Ver</button> <button class="btn mini borda" data-a="impEditar" data-id="${i.id}">✎ Editar</button> <button class="btn mini perigo" data-a="impDesfazer" data-id="${i.id}">Desfazer</button></td></tr>`).join('') +
     `</tbody></table></div>`;
 }
 async function registrarImpressao(m, rapido) {
@@ -2142,13 +2154,18 @@ async function registrarImpressao(m, rapido) {
       (tirar.length ? `<div class="hist">${tirar.map(x => { const fica = (sal[x.rolo] || 0) - x.g; return `<div><span style="flex:1">Rolo ${esc(nomeRolo(x.r))}</span><b>−${fmtN(x.g, 1)} g</b><span class="peq" style="color:${fica < 0 ? 'var(--zero)' : 'var(--suave)'}">fica ${fmtN(fica, 0)} g</span></div>`; }).join('')}</div>` : `<p class="muted peq">Nenhum rolo escolhido: não vou descontar filamento.</p>`) +
       (negativos.length ? `<p class="peq" style="color:var(--zero)">Algum rolo vai ficar negativo. Depois vale pesar o rolo e usar “Pesei” na aba Filamentos.</p>` : '') +
       (temCusto ? `<p>Custo de produção da mesa: <b>${fmtR(r.total)}</b></p>` : `<p class="muted peq">Sem o tempo de impressão, o custo não fica guardado.</p>`);
-    if (!await confirmar('Registrar impressão?', corpo, 'Registrar')) return false;
+    if (!await confirmar(m.editando ? 'Salvar alterações da impressão?' : 'Registrar impressão?', (m.editando ? '<p class="peq muted">A impressão antiga é trocada por esta (as peças e o filamento são recalculados).</p>' : '') + corpo, m.editando ? 'Salvar' : 'Registrar')) return false;
   }
   const t = dataDe(m.dia);
   let numero;
-  acao('impressão de ' + plural(r.pecas, 'peça', 'peças'), () => {
-    const id = 'i' + uid();
-    numero = S.impressoes.reduce((a, b) => Math.max(a, b.num || 0), 0) + 1;
+  const velha = m.editando ? S.impressoes.find(x => x.id === m.editando) : null;
+  acao((velha ? 'editar impressão nº ' + velha.num : 'impressão de ' + plural(r.pecas, 'peça', 'peças')), () => {
+    const id = velha ? velha.id : 'i' + uid();
+    if (velha) {   // desfaz a impressão antiga (peças, filamento e custos) antes de gravar a nova
+      S.movs = S.movs.filter(x => x.imp !== id); S.filmovs = S.filmovs.filter(x => x.imp !== id); S.impressoes = S.impressoes.filter(x => x !== velha);
+      for (const k of Object.keys(S.custos)) if (S.custos[k] && S.custos[k].imp === id) delete S.custos[k];
+    }
+    numero = velha ? velha.num : S.impressoes.reduce((a, b) => Math.max(a, b.num || 0), 0) + 1;
     const obs = 'Impressão nº ' + numero + (m.obs && m.obs.trim() ? ' · ' + m.obs.trim() : '');
     for (const x of r.linhas) {
       S.movs.push({ id: uid(), t, k: x.k, d: x.q, tipo: 'producao', obs, imp: id });
@@ -2164,8 +2181,19 @@ async function registrarImpressao(m, rapido) {
       linhas: r.linhas.map(x => ({ k: x.k, nome: nomeItem(x.c, x.l, x.co), q: x.q, peso: x.peso, acab: x.acab, g: x.g, h: x.h, custo: temCusto ? x.custo : null }))
     });
   });
+  if (velha) { S.impressoes.sort((a, b) => (a.num || 0) - (b.num || 0)); gravar(); toast(`Impressão nº ${numero} corrigida`, true); return true; }
   toast(`Impressão nº ${numero} registrada: +${r.pecas} no estoque${tirar.length ? ', −' + fmtN(tirar.reduce((s, x) => s + x.g, 0), 0) + ' g de filamento' : ''}` + (negativos.length ? ' (rolo ficou negativo!)' : ''), true);
   return true;
+}
+/* Editar impressão: carrega a impressão na mesa; ao registrar, a antiga é trocada pela nova (mesmo número) */
+function editarImpressao(id) {
+  const i = S.impressoes.find(x => x.id === id); if (!i) return;
+  const linhas = i.linhas.map(x => { const a = acharPorChave(x.k); return a ? { cat: a.c.id, lin: a.l.id, col: a.co.id, q: String(x.q), peso: x.peso ? fmtIn(x.peso) : '', acab: x.acab ? fmtIn(x.acab) : '' } : null; }).filter(Boolean);
+  const hh = Math.floor(i.h || 0), mm = Math.round(((i.h || 0) - hh) * 60);
+  UI.mesa = { linhas: linhas.length ? linhas : [novaLinha()], rolos: (i.rolos || []).length ? i.rolos.map(x => ({ rolo: x.rolo, g: fmtIn(x.g) })) : [{ rolo: '', g: '' }],
+    h: i.h ? String(hh) : '', min: i.h ? String(mm) : '', dia: (i.t || '').slice(0, 10), obs: i.obs || '', editando: i.id };
+  UI.vista = 'impressao'; gravarUI(); render(); window.scrollTo(0, 0);
+  toast('Corrija o que precisar e toque em “Salvar alterações”');
 }
 function verImpressao(id) {
   const i = S.impressoes.find(x => x.id === id); if (!i) return;
@@ -2407,6 +2435,8 @@ document.addEventListener('click', async e => {
     case 'mesaRoloAdd': UI.mesa.rolos.push({ rolo: '', g: '' }); gravarUI(); render(); break;
     case 'mesaRoloRem': UI.mesa.rolos.splice(+b.dataset.i, 1); if (!UI.mesa.rolos.length) UI.mesa.rolos.push({ rolo: '', g: '' }); gravarUI(); render(); break;
     case 'mesaRegistrar': if (await registrarImpressao(UI.mesa)) { UI.mesa = novaMesa(); gravarUI(); render(); } break;
+    case 'mesaCancelarEd': UI.mesa = novaMesa(); gravarUI(); render(); break;
+    case 'impEditar': editarImpressao(b.dataset.id); break;
     case 'mesaLimpar': if (await confirmar('Limpar a mesa?', 'As peças e os números digitados nesta mesa serão apagados (nada do estoque muda).', 'Limpar', true)) { UI.mesa = novaMesa(); gravarUI(); render(); } break;
     case 'mesaDaLista': if (mesaDaLista()) render(); break;
     case 'montarMesa': if (mesaDaLista()) { UI.vista = 'impressao'; gravarUI(); render(); window.scrollTo(0, 0); } break;
@@ -3475,7 +3505,7 @@ document.addEventListener('click', async e => {
   const a = b.dataset.a;
   const k = b.dataset.k || (b.closest('[data-k]') && b.closest('[data-k]').dataset.k);
   switch (a) {
-    case 'vista': e.preventDefault(); UI.vista = b.dataset.v; if (b.dataset.fin) UI.finAba = b.dataset.fin; if (b.dataset.cad) UI.cadCat = b.dataset.cad; if (b.dataset.v === 'estoque' && b.dataset.cat) UI.cat = b.dataset.cat; gravarUI(); render(); window.scrollTo(0, 0); break;
+    case 'vista': e.preventDefault(); if (b.dataset.v.startsWith('fin:')) { UI.vista = 'financeiro'; UI.finAba = b.dataset.v.slice(4); } else UI.vista = b.dataset.v; if (b.dataset.fin) UI.finAba = b.dataset.fin; if (b.dataset.cad) UI.cadCat = b.dataset.cad; if (b.dataset.v === 'estoque' && b.dataset.cat) UI.cat = b.dataset.cat; gravarUI(); render(); window.scrollTo(0, 0); break;
     case 'filtro': UI[b.dataset.f] = b.dataset.val; if (b.dataset.f === 'contCat') UI.contCol = ''; gravarUI(); render(); break;
     case 'limparFiltros': UI.busca = ''; UI.cor = ''; UI.situacao = 'todos'; gravarUI(); render(); break;
     case 'mais': somar(k, 1); break;

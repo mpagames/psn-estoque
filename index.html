@@ -830,7 +830,7 @@ const SECOES_APP = [
   { id: 'resumo', nome: 'Resumo da empresa', vistas: [['painel', 'Resumo']] },
   { id: 'estoque', nome: 'Estoque', vistas: [['estoque', 'Estoque'], ['contagem', 'Contagem'], ['cadastros', 'Cadastros']] },
   { id: 'impressoes', nome: 'Impressões', vistas: [['imprimir', 'O que imprimir'], ['impressao', 'Registrar impressão'], ['filamentos', 'Filamentos']] },
-  { id: 'financeiro', nome: 'Financeiro', vistas: [['fin:resumo', 'Resumo do mês'], ['fin:lanc', 'Entradas e saídas'], ['fin:contas', 'Contas a pagar'], ['fin:fixas', 'Contas fixas'], ['precos', 'Preços']] },
+  { id: 'financeiro', nome: 'Financeiro', vistas: [['fin:resumo', 'Resumo do mês'], ['fin:lanc', 'Entradas e saídas'], ['fin:contas', 'Contas a pagar'], ['fin:fixas', 'Contas fixas'], ['fin:compras', 'Lista de compras'], ['precos', 'Preços']] },
   { id: 'backup', nome: 'Backup', vistas: [['backup', 'Backup e planilha']] }
 ];
 const VISTAS = SECOES_APP.flatMap(x => x.vistas);
@@ -853,7 +853,7 @@ function render() {
   $('#abas').innerHTML = SECOES_APP.map(x => `<button class="${sa && sa.id === x.id ? 'ativa' : ''}" data-a="vista" data-v="${esc(UI.ultSub[x.id] || x.vistas[0][0])}">${x.nome}${
       x.id === 'impressoes' ? badge(nImp, 'var(--zero)') : x.id === 'estoque' ? badge(nCont) : x.id === 'financeiro' ? badge(nFin, 'var(--zero)') : ''}</button>`).join('');
   const subHtml = sa && sa.vistas.length > 1 ? `<div class="subabas">${sa.vistas.map(([id, nome]) => `<button class="chip ${va === id ? 'ativo' : ''}" data-a="vista" data-v="${id}">${nome}${
-      id === 'imprimir' ? badge(nImp, 'var(--zero)') : id === 'filamentos' ? badge(nFil, '#E0A800') : id === 'contagem' ? badge(nCont) : id === 'fin:contas' ? badge(nAb, nFin ? 'var(--zero)' : 'var(--roxo)') : ''}</button>`).join('')}</div>` : '';
+      id === 'imprimir' ? badge(nImp, 'var(--zero)') : id === 'filamentos' ? badge(nFil, '#E0A800') : id === 'contagem' ? badge(nCont) : id === 'fin:contas' ? badge(nAb, nFin ? 'var(--zero)' : 'var(--roxo)') : id === 'fin:compras' ? badge(comprasAbertas().length, 'var(--roxo)') : ''}</button>`).join('')}</div>` : '';
   const bd = $('#btnDesfazer');
   const u = pilhaDesfazer[pilhaDesfazer.length - 1];
   bd.disabled = !u;
@@ -953,6 +953,7 @@ function telaFinanceiro() {
   if (UI.finAba === 'lanc') return h + finLancamentos();
   if (UI.finAba === 'contas') return h + finContas();
   if (UI.finAba === 'fixas') return h + finFixasTela();
+  if (UI.finAba === 'compras') return h + finCompras();
   return h + finResumo();
 }
 function seletorMes() {
@@ -1058,11 +1059,12 @@ function finFixasTela() {
 }
 
 /* ---------- formulários ---------- */
-async function finAbrir(tipo, id, comoConta) {
+async function finAbrir(tipo, id, comoConta, pre) {
   const l = id ? S.finLanc.find(x => x.id === id) : null;
   tipo = l ? l.tipo : tipo;
   const ent = tipo === 'ent';
-  const v = l || { data: hojeISO(), desc: '', valor: '', grupo: 'producao', cat: '', forma: 'Pix', pago: !comoConta };
+  const v = l || Object.assign({ data: hojeISO(), desc: '', valor: '', grupo: 'producao', cat: '', forma: 'Pix', pago: !comoConta }, pre || {});
+  if (pre && pre.cat) { const g = Object.entries(FIN_GRUPOS).find(([, o]) => o.cats.includes(pre.cat)); if (g) v.grupo = g[0]; }
   const cats = ent ? FIN_ENT_CATS : [...new Set([...Object.values(FIN_GRUPOS).flatMap(g => g.cats), ...S.finLanc.filter(x => x.tipo === 'sai').map(x => x.cat).filter(Boolean)])];
   const corpo = `<div class="linha-btns"><label class="campo"><span>${ent ? 'Data da venda' : comoConta || (l && !l.pago) ? 'Vencimento' : 'Data'}</span><input type="date" name="data" value="${esc(v.data)}" required></label>
       <label class="campo"><span>Valor (R$)</span><input type="text" inputmode="decimal" name="valor" value="${fmtIn(v.valor)}" required placeholder="0,00" style="width:130px"></label></div>
@@ -1417,6 +1419,73 @@ async function publicarEsgotados() {
   catch (e) { console.warn('catálogo', e); }
 }
 
+
+/* =====================================================================
+   LISTA DE COMPRAS — o que precisa comprar, com sugestões do próprio sistema
+   S.compras: [{ id, desc, qtd, valor, onde, obs, auto, feito, criado, feitoEm }]
+   ===================================================================== */
+const comprasAbertas = () => S.compras.filter(x => !x.feito);
+function sugestoesCompra() {
+  calcular();
+  const sal = saldosRolos(), sug = [], naLista = new Set(S.compras.filter(x => !x.feito && x.auto).map(x => x.auto));
+  for (const r of rolosAcabando()) {
+    const auto = 'rolo:' + semAcento(r.cor) + '|' + semAcento(r.marca || '') + '|' + semAcento(r.fab || '');
+    if (naLista.has(auto) || sug.some(x => x.auto === auto)) continue;
+    sug.push({ auto, desc: 'Filamento ' + [r.material, r.cor].filter(Boolean).join(' ') + ([r.marca, r.fab].filter(Boolean).length ? ' (' + [r.marca, r.fab].filter(Boolean).join(' ') + ')' : ''),
+      motivo: `rolo nº ${r.num} com ${fmtN(Math.max(0, sal[r.id] || 0), 0)} g`, qtd: 1, valor: r.preco || null, cor: r.hex });
+  }
+  for (const i of todosItens()) {
+    if (!DE_FORNECEDOR.includes(i.c.id) || (i.c.proprios || []).includes(i.l.id)) continue;
+    if (i.st !== 'zero' && i.st !== 'baixo') continue;
+    const auto = 'item:' + i.k; if (naLista.has(auto)) continue;
+    const falta = Math.max(1, i.min - i.q);
+    sug.push({ auto, desc: ({ bichclick: 'Bichinho clicker ', bicharti: 'Bichinho articulado ' }[i.c.id] || '') + nomeItem(i.c, i.l, i.co), motivo: `tem ${i.q}${i.min ? ', mínimo ' + i.min : ''}`, qtd: falta, valor: null, item: i });
+  }
+  return sug;
+}
+function finCompras() {
+  const ab = comprasAbertas().slice().sort((a, b) => (a.criado || '').localeCompare(b.criado || ''));
+  const tot = ab.reduce((s, x) => s + (num(x.valor) || 0) * (x.qtd || 1), 0);
+  let h = `<div class="linha-btns" style="justify-content:space-between;align-items:center"><p class="peq muted" style="margin:0">${plural(ab.length, 'item para comprar', 'itens para comprar')}${tot ? ` · estimado <b>${fmtR(tot)}</b>` : ''}</p>
+    <button class="btn prim" data-a="compraNova">+ Item para comprar</button></div>`;
+  h += `<div class="cartao" style="margin-top:12px">${ab.length ? `<table class="lista"><tbody>${ab.map(x => `<tr>
+      <td style="width:1%"><button class="btn mini ok" data-a="compraFeita" data-id="${x.id}" title="Marcar como comprado">✓ Comprei</button></td>
+      <td><b>${esc(x.desc)}</b>${x.qtd > 1 ? ` <span class="tag">${x.qtd}×</span>` : ''}<br><span class="peq muted">${[x.onde, x.obs].filter(Boolean).map(esc).join(' · ')}</span></td>
+      <td style="text-align:right;white-space:nowrap">${num(x.valor) ? fmtR(num(x.valor) * (x.qtd || 1)) : '<span class="peq muted">—</span>'}</td>
+      <td style="text-align:right;white-space:nowrap"><button class="btn mini borda" data-a="compraEditar" data-id="${x.id}" aria-label="Editar">✎</button> <button class="btn mini borda" data-a="compraApagar" data-id="${x.id}" aria-label="Tirar da lista">✕</button></td></tr>`).join('')}</tbody></table>`
+    : '<p class="muted">A lista está vazia. Toque em “+ Item para comprar” ou use as sugestões abaixo.</p>'}</div>`;
+  const sug = sugestoesCompra();
+  h += `<div class="cartao"><h3>💡 Sugestões do sistema</h3><p class="peq muted" style="margin-top:-6px">Rolos de filamento acabando e peças que você compra pronta (bichinhos, cordinhas, switches) que estão abaixo do mínimo.</p>
+    ${sug.length ? `<table class="lista"><tbody>${sug.map((x, i) => `<tr><td>${x.item ? amostra(x.item.co, '') : `<span class="bolinha" style="background:${esc(x.cor || '#ccc')}"></span>`}</td>
+      <td><b>${esc(x.desc)}</b><br><span class="peq muted">${esc(x.motivo)}${x.qtd > 1 ? ' · sugestão: comprar ' + x.qtd : ''}</span></td>
+      <td style="text-align:right"><button class="btn mini borda" data-a="compraSug" data-i="${i}">+ Pôr na lista</button></td></tr>`).join('')}</tbody></table>
+      ${sug.length > 1 ? `<button class="btn mini borda" data-a="compraSugTodas" style="margin-top:8px">+ Pôr todas na lista</button>` : ''}` : '<p class="muted">Nada faltando agora. 🎉</p>'}</div>`;
+  const feitas = S.compras.filter(x => x.feito && x.feitoEm && diasAte(x.feitoEm) >= -30).sort((a, b) => b.feitoEm.localeCompare(a.feitoEm));
+  if (feitas.length) h += `<details class="cartao"><summary>Comprados nos últimos 30 dias (${feitas.length})</summary><table class="lista" style="margin-top:8px"><tbody>${feitas.map(x => `<tr><td class="peq muted">${dataBr(x.feitoEm)}</td><td>${esc(x.desc)}${x.qtd > 1 ? ' · ' + x.qtd + '×' : ''}</td>
+    <td style="text-align:right"><button class="btn mini borda" data-a="compraVoltar" data-id="${x.id}">voltar para a lista</button></td></tr>`).join('')}</tbody></table></details>`;
+  return h;
+}
+async function compraAbrir(id, pre) {
+  const x = id ? S.compras.find(c => c.id === id) : null;
+  const v = x || Object.assign({ desc: '', qtd: 1, valor: '', onde: '', obs: '' }, pre || {});
+  const d = await formulario(x ? 'Editar item da lista' : 'Item para comprar', `<label class="campo"><span>O que comprar</span><input type="text" name="desc" value="${esc(v.desc)}" required placeholder="ex.: Switches azuis, saquinhos 10×15…"></label>
+    <div class="linha-btns"><label class="campo"><span>Quantidade</span><input type="text" inputmode="numeric" name="qtd" value="${esc(v.qtd || 1)}" style="width:90px"></label>
+      <label class="campo"><span>Preço de 1 (opcional)</span><input type="text" inputmode="decimal" name="valor" value="${fmtIn(num(v.valor) || '')}" placeholder="R$" style="width:120px"></label></div>
+    <label class="campo"><span>Onde comprar (opcional)</span><input type="text" name="onde" value="${esc(v.onde || '')}" placeholder="loja, site, fornecedor…"></label>
+    <label class="campo"><span>Observação (opcional)</span><input type="text" name="obs" value="${esc(v.obs || '')}"></label>`, 'Salvar');
+  if (!d || !d.desc.trim()) return;
+  const dados = { desc: d.desc.trim(), qtd: Math.max(1, Math.round(num(d.qtd) || 1)), valor: num(d.valor) || null, onde: d.onde.trim(), obs: d.obs.trim() };
+  if (x) acao('editar item da lista', () => { Object.assign(x, dados); });
+  else acao('pôr na lista de compras', () => { S.compras.push(Object.assign({ id: 'q' + uid(), criado: new Date().toISOString(), feito: false, auto: pre && pre.auto || null }, dados)); });
+}
+async function compraFeita(id) {
+  const x = S.compras.find(c => c.id === id); if (!x) return;
+  acao('comprei ' + x.desc, () => { x.feito = true; x.feitoEm = hojeISO(); });
+  const total = round2((num(x.valor) || 0) * (x.qtd || 1));
+  if (await confirmar('Lançar no Financeiro?', `Marquei <b>${esc(x.desc)}</b> como comprado.<br>Quer lançar ${total ? 'o gasto de <b>' + fmtR(total) + '</b>' : 'esse gasto'} no Financeiro agora?`, 'Lançar gasto'))
+    finAbrir('sai', null, false, { desc: (x.qtd > 1 ? x.qtd + ' ' : '') + x.desc, valor: total || '', cat: /filamento/i.test(x.desc) ? 'Filamento' : /switch/i.test(x.desc) ? 'Switches e peças' : /cordinh|argola/i.test(x.desc) ? 'Cordinhas e argolas' : /embalag|saquinh|caixinha/i.test(x.desc) ? 'Embalagens' : '' });
+}
+
 /* ---------- PAINEL ---------- */
 function telaPainel(itens) {
   const zer = itens.filter(i => i.st === 'zero'), bai = itens.filter(i => i.st === 'baixo');
@@ -1428,6 +1497,8 @@ function telaPainel(itens) {
     no Mac, abra o arquivo <b>PSN Estoque.html</b> → <b>Backup e planilha</b> → <b>Baixar cópia completa</b> (vem um arquivo <b>.json</b>, não precisa abrir). Depois, aqui, toque em <b>Restaurar de um arquivo</b> e escolha esse arquivo, que está em Downloads.</div>
     <label class="btn prim" style="cursor:pointer">Restaurar de um arquivo…<input type="file" accept=".json,application/json" id="arqJson" hidden></label></div>`;
   h += avisoBackup();
+  { const nc = comprasAbertas().length; if (nc) h += `<div class="aviso lilas"><span>🛒 <b>${plural(nc, 'item', 'itens')}</b> na lista de compras: ${esc(comprasAbertas().slice(0, 3).map(x => x.desc).join(', '))}${nc > 3 ? '…' : ''}</span>
+    <button class="btn mini prim" data-a="vista" data-v="fin:compras">Ver lista</button></div>`; }
   { const E = listaEsgotados().detalhe; if (E.length) h += `<details class="cartao"><summary>🛍️ <b>${plural(E.length, 'item aparece', 'itens aparecem')} como “Esgotado” no catálogo</b> <span class="peq muted">(acabou e não dá para produzir agora)</span></summary>
     <div class="peq" style="margin-top:8px;line-height:1.7">${E.slice(0, 60).map(x => esc(x.c.nome + ': ' + nomeItem(x.c, x.l, x.co))).join('<br>')}${E.length > 60 ? '<br>…' : ''}</div>
     <p class="peq muted">Para voltar a aparecer: dê entrada no estoque ou cadastre um rolo de filamento da cor.</p></details>`; }
@@ -1814,6 +1885,7 @@ function normalizar(st) {
   st.combos = st.combos || [];
   st.finLanc = st.finLanc || [];
   st.finFixas = st.finFixas || [];
+  st.compras = st.compras || [];
   st.config.filAviso = st.config.filAviso ?? 150;
   return st;
 }
@@ -3024,7 +3096,7 @@ function agendarNuvem() {
 }
 /* Se os dois aparelhos salvaram ao mesmo tempo, junta os lançamentos de cada um. */
 function mesclar(local, remoto) {
-  for (const campo of ['movs', 'filmovs', 'impressoes', 'finLanc']) {
+  for (const campo of ['movs', 'filmovs', 'impressoes', 'finLanc', 'compras']) {
     local[campo] = local[campo] || [];
     const ids = new Set((local[campo] || []).map(x => x.id));
     for (const x of remoto[campo] || []) if (!ids.has(x.id)) local[campo].push(x);
@@ -3274,6 +3346,9 @@ function exportarXlsx() {
   for (const l of S.finLanc.slice().sort((a, b) => a.data.localeCompare(b.data))) FL.push([dataBr(l.data), l.tipo === 'ent' ? 'Entrada' : 'Saída', l.desc,
     l.tipo === 'ent' ? '' : (FIN_GRUPOS[l.grupo || 'outras'] || {}).nome || '', l.cat || '', l.tipo === 'ent' ? l.valor : -l.valor, l.tipo === 'ent' ? 'recebido' : l.pago ? 'pago' : 'a pagar', l.forma || '']);
   abas.push({ nome: 'Financeiro', larguras: [12, 10, 36, 22, 22, 13, 11, 16], linhas: FL });
+  const LC = [[H('O que comprar'), H('Qtd'), H('Preço de 1 (R$)'), H('Onde'), H('Observação'), H('Situação')]];
+  for (const x of S.compras) LC.push([x.desc, x.qtd || 1, num(x.valor) || '', x.onde || '', x.obs || '', x.feito ? 'comprado em ' + dataBr(x.feitoEm) : 'a comprar']);
+  abas.push({ nome: 'Lista de compras', larguras: [40, 7, 14, 24, 30, 20], linhas: LC });
   abas.push({ nome: 'Filamentos', larguras: [9, 12, 16, 14, 18, 18, 12, 12, 11, 10], linhas: F });
   const I = [[H('Impressão nº'), H('Data'), H('Peça'), H('Qtd'), H('Peso de 1 (g)'), H('Filamento por peça (g)'), H('Tempo por peça (min)'), H('Custo de 1 (R$)'), H('Observação')]];
   for (const imp of S.impressoes.slice().reverse()) for (const x of imp.linhas) I.push([imp.num, fmtData(imp.t), x.nome, x.q, x.peso || '', round2(x.g), Math.round(x.h * 600) / 10, x.custo != null ? round2(x.custo) : '', imp.obs]);
@@ -3523,6 +3598,13 @@ document.addEventListener('click', async e => {
     case 'finDespagar': { const l = S.finLanc.find(x => x.id === b.dataset.id); if (l) acao('voltar conta para a pagar', () => { l.pago = false; l.pagoEm = null; }); break; }
     case 'finExcluir': { const l = S.finLanc.find(x => x.id === b.dataset.id); if (l && l.venda) { vendaExcluir(l.id); break; } if (l && await confirmar('Excluir lançamento?', `<b>${esc(l.desc)}</b> — ${fmtR(l.valor)} (${dataBr(l.data)}). Dá para usar “Desfazer” logo em seguida.`, 'Excluir', true)) acao('excluir lançamento', () => { S.finLanc = S.finLanc.filter(x => x !== l); }); break; }
     case 'finFixa': finFixaAbrir(b.dataset.id); break;
+    case 'compraNova': compraAbrir(null); break;
+    case 'compraEditar': compraAbrir(b.dataset.id); break;
+    case 'compraFeita': compraFeita(b.dataset.id); break;
+    case 'compraVoltar': { const x = S.compras.find(c => c.id === b.dataset.id); if (x) acao('voltar para a lista', () => { x.feito = false; x.feitoEm = null; }); break; }
+    case 'compraApagar': { const x = S.compras.find(c => c.id === b.dataset.id); if (x) { acao('tirar da lista: ' + x.desc, () => { S.compras = S.compras.filter(c => c !== x); }); toast('Tirado da lista', true); } break; }
+    case 'compraSug': { const g = sugestoesCompra()[+b.dataset.i]; if (g) acao('pôr na lista de compras', () => { S.compras.push({ id: 'q' + uid(), criado: new Date().toISOString(), feito: false, auto: g.auto, desc: g.desc, qtd: g.qtd, valor: g.valor, onde: '', obs: '' }); }); break; }
+    case 'compraSugTodas': { const gs = sugestoesCompra(); acao('pôr sugestões na lista', () => { for (const g of gs) S.compras.push({ id: 'q' + uid(), criado: new Date().toISOString(), feito: false, auto: g.auto, desc: g.desc, qtd: g.qtd, valor: g.valor, onde: '', obs: '' }); }); toast(plural(gs.length, 'item foi', 'itens foram') + ' para a lista', true); break; }
     case 'finFixaAtiva': { const f = S.finFixas.find(x => x.id === b.dataset.id); if (f) acao(f.ativo ? 'pausar conta fixa' : 'ativar conta fixa', () => { f.ativo = !f.ativo; if (f.ativo) gerarFixas(mesDe(hojeISO())); }); break; }
     case 'entrarGoogle': entrarGoogle(); break;
     case 'sairGoogle': sairGoogle(); break;

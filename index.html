@@ -408,7 +408,14 @@ function atualizarVersao(st) {
   if (st.versao < 13) { atualizacao13(st); st.versao = 13; mudou = true; }
   if (st.versao < 14) { atualizacao14(st); st.versao = 14; mudou = true; }
   if (st.versao < 15) { atualizacao15(st); st.versao = 15; mudou = true; }
+  if (st.versao < 16) { atualizacao16(st); st.versao = 16; mudou = true; }
   return mudou;
+}
+/* Versão 16 (22/11/2026): o Polvo articulado você mesma imprime (os outros bichinhos são de fornecedor). */
+function atualizacao16(st) {
+  const c = st.categorias.find(x => x.id === 'bicharti'); if (!c) return;
+  c.proprios = c.proprios || [];
+  for (const l of c.linhas) if (/polvo/i.test(l.nome) && !c.proprios.includes(l.id)) c.proprios.push(l.id);
 }
 /* Versão 15 (22/11/2026): switches no estoque (vermelho, marrom e azul). */
 function atualizacao15(st) {
@@ -1348,6 +1355,57 @@ function lerPedido(texto) {
   VD.avisos = avisos; VD.colar = false; delete VD.__ultSolto;
 }
 
+
+/* =====================================================================
+   ESGOTADOS PARA O CATÁLOGO
+   Uma peça aparece como "Esgotado" no catálogo quando: está com 0 (ou menos) no estoque
+   E você não consegue produzir na hora (é de fornecedor, ou não tem rolo de filamento da cor).
+   O catálogo recebe SÓ a lista de nomes esgotados (nada de quantidades), no documento público publico/catalogo.
+   ===================================================================== */
+const DE_FORNECEDOR = ['bichclick', 'bicharti', 'cordinhas', 'switches'];   // categorias que você compra pronto
+const NAO_VAI_PRO_CATALOGO = ['natal', 'decoracao', 'pingentes', 'switches'];
+const chaveCat = (...p) => p.map(x => semAcento(String(x || '')).replace(/\s+/g, ' ').trim()).join('|');
+function coresComFilamento() {
+  const sal = saldosRolos(), set = new Set();
+  for (const r of S.rolos) if (!r.arquivado && (sal[r.id] || 0) > 20) set.add(semAcento(r.cor || '').trim());
+  return set;
+}
+function consigoProduzir(c, l, co, fil) {
+  const proprio = (c.proprios || []).includes(l.id);
+  if (DE_FORNECEDOR.includes(c.id) && !proprio) return false;
+  const tem = n => fil.has(semAcento(n || '').trim());
+  if (c.id === 'letras') return tem(co.base) && tem(co.letra);
+  if (co.nome === 'Única') return true;
+  return tem(co.base || co.nome);
+}
+function listaEsgotados() {
+  calcular();
+  const fil = coresComFilamento(), out = new Set(), detalhe = [];
+  for (const c of S.categorias) {
+    if (NAO_VAI_PRO_CATALOGO.includes(c.id)) continue;
+    for (const l of c.linhas) {
+      const cols = c.colunas.filter(co => ativo(c, l.id, co.id));
+      let todos = cols.length > 0;
+      for (const co of cols) {
+        const q = Q[chave(c.id, l.id, co.id)] || 0;
+        const esg = q <= 0 && !consigoProduzir(c, l, co, fil);
+        if (!esg) { todos = false; continue; }
+        out.add(c.id === 'letras' ? chaveCat('letras', co.nome, l.nome) : co.nome === 'Única' ? chaveCat(c.id, l.nome) : chaveCat(c.id, l.nome, co.nome));
+        detalhe.push({ c, l, co });
+      }
+      if (todos && cols.length > 1) out.add(chaveCat(c.id, l.nome));
+    }
+  }
+  return { lista: [...out].sort(), detalhe };
+}
+async function publicarEsgotados() {
+  if (!NUVEM.ativa || !NUVEM.db) return;
+  const { lista } = listaEsgotados(), txt = JSON.stringify(lista);
+  if (txt === NUVEM.pubUlt) return;
+  try { await NUVEM.db.doc('publico/catalogo').set({ esgotados: lista, atualizado: new Date().toISOString() }); NUVEM.pubUlt = txt; }
+  catch (e) { console.warn('catálogo', e); }
+}
+
 /* ---------- PAINEL ---------- */
 function telaPainel(itens) {
   const zer = itens.filter(i => i.st === 'zero'), bai = itens.filter(i => i.st === 'baixo');
@@ -1359,6 +1417,9 @@ function telaPainel(itens) {
     no Mac, abra o arquivo <b>PSN Estoque.html</b> → <b>Backup e planilha</b> → <b>Baixar cópia completa</b> (vem um arquivo <b>.json</b>, não precisa abrir). Depois, aqui, toque em <b>Restaurar de um arquivo</b> e escolha esse arquivo, que está em Downloads.</div>
     <label class="btn prim" style="cursor:pointer">Restaurar de um arquivo…<input type="file" accept=".json,application/json" id="arqJson" hidden></label></div>`;
   h += avisoBackup();
+  { const E = listaEsgotados().detalhe; if (E.length) h += `<details class="cartao"><summary>🛍️ <b>${plural(E.length, 'item aparece', 'itens aparecem')} como “Esgotado” no catálogo</b> <span class="peq muted">(acabou e não dá para produzir agora)</span></summary>
+    <div class="peq" style="margin-top:8px;line-height:1.7">${E.slice(0, 60).map(x => esc(x.c.nome + ': ' + nomeItem(x.c, x.l, x.co))).join('<br>')}${E.length > 60 ? '<br>…' : ''}</div>
+    <p class="peq muted">Para voltar a aparecer: dê entrada no estoque ou cadastre um rolo de filamento da cor.</p></details>`; }
   { const cu = contasUrgentes(); if (cu.length) { const atr = cu.filter(l => diasAte(l.data) < 0).length;
     h += `<div class="aviso ${atr ? 'vermelho' : 'amarelo'}"><span>💳 ${atr ? `<b>${plural(atr, 'conta atrasada', 'contas atrasadas')}</b>` : ''}${atr && cu.length > atr ? ' e ' : ''}${cu.length > atr ? `<b>${plural(cu.length - atr, 'conta vencendo', 'contas vencendo')}</b> nos próximos dias` : ''}: ${fmtR(cu.reduce((s, l) => s + l.valor, 0))}</span>
       <button class="btn mini prim" data-a="vista" data-v="financeiro" data-fin="contas">Ver contas</button></div>`; } }
@@ -2848,6 +2909,7 @@ async function conectarNuvem(db) {
   NUVEM.ativa = true;
   // o sistema foi atualizado neste aparelho (nomes novos etc.): manda a versão atualizada para a conta
   if (NUVEM.migrou && NUVEM.status === 'ok') { NUVEM.migrou = false; agendarNuvem(); }
+  setTimeout(publicarEsgotados, 3000);   // manda para o catálogo o que está esgotado
   db.doc('estoque/meta').onSnapshot(async s => {
     if (!s.exists || s.metadata.hasPendingWrites) return;
     const m = s.data();
@@ -2956,6 +3018,7 @@ async function salvarNaNuvem() {
     for (let i = 0; i < n; i++) await NUVEM.db.doc('estoque_partes/r' + rev + '-' + i).set({ t: txt.slice(i * TAM_PARTE, (i + 1) * TAM_PARTE) });
     await metaRef.set({ rev, partes: n, tamanho: txt.length, salvoEm: new Date().toISOString(), aparelho: qualAparelho() });
     NUVEM.rev = rev; guardarRev(rev);
+    publicarEsgotados();
     if (velho) for (let i = 0; i < velho.partes; i++) NUVEM.db.doc('estoque_partes/r' + velho.rev + '-' + i).delete().catch(() => {});
     statusNuvem('ok');
   } catch (e) {

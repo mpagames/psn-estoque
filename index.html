@@ -305,7 +305,7 @@ const CORES = [
   ['Azul claro','#C9D3F2'],['Mostarda','#E0A526'],['Marrom','#9A5B2E'],['Bege','#D9BF94'],['Cinza','#8E8E93'],
   ['Verde-água','#A9DCD6'],['Verde claro','#C6E3A6'],['Lavanda','#B9BDEB'],['Lilás rosado','#D58BE0'],['Turquesa','#5CC9C2'],
   ['Azul metálico','#4C8FB8'],['Rosa perolado','#EBC3DE'],['Amarelo claro','#EEEB7A'],['Violeta','#5B3BC9'],['Off-white','#EFE4CF'],
-  ['Amarelo bebê','#F3E3A0'],['Rosa claro','#F4A6BE'],['Pink','#E8457A'],['Azul royal','#1F3FA6'],['Verde limão','#7CC832'],['Caramelo','#9A6232'],['Dourado','#C9A227'],
+  ['Amarelo bebê','#F3E3A0'],['Rosa claro','#F4A6BE'],['Pink','#E8457A'],['Azul royal','#1F3FA6'],['Verde limão','#7CC832'],['Caramelo','#9A6232'],['Dourado','#C9A227'],['Verde oliva','#6B7A3A'],
   ['Azul lavanda','#C4C6F0'],['Azul perolado','#3FA9C4'],['Azul turquesa','#5CC9C2'],['Amarelo pastel','#F2EC9A'],['Verde pastel','#C6EBB4'],
   ['Azul pastel','#A9DCE0'],['Lilás rosa','#D58BE0']
 ];
@@ -410,7 +410,36 @@ function atualizarVersao(st) {
   if (st.versao < 14) { atualizacao14(st); st.versao = 14; mudou = true; }
   if (st.versao < 15) { atualizacao15(st); st.versao = 15; mudou = true; }
   if (st.versao < 16) { atualizacao16(st); st.versao = 16; mudou = true; }
+  if (st.versao < 17) { atualizacao17(st); st.versao = 17; mudou = true; }
   return mudou;
+}
+/* Versão 17 (23/11/2026): peças de Natal com a cor de verdade (antes era tudo "Única", em lilás).
+   Presépio e Sagrada Família em pé = Bege; Bandeja e Porta-velas = Marrom; Árvore = Verde oliva com estrela Dourada.
+   As quantidades já contadas de cada peça vão junto para a cor nova. */
+function atualizacao17(st) {
+  const c = st.categorias.find(x => x.id === 'natal');
+  if (c) {
+    const unica = c.colunas.find(co => co.nome === 'Única');
+    const pegaCol = (nome, base, letra, h1, h2) => { let co = c.colunas.find(x => x.nome.toLowerCase() === nome.toLowerCase());
+      if (!co) { co = { id: 'c' + uid(), nome, base, letra, hex1: h1, hex2: h2, bicolor: !!letra }; c.colunas.push(co); } return co; };
+    const regra = n => { n = n.toLowerCase();
+      if (/pres[eé]pio|sagrada/.test(n)) return ['Bege', 'Bege', '', '#D8C3A0', ''];
+      if (/bandeja|porta/.test(n)) return ['Marrom', 'Marrom', '', '#8E5D38', ''];
+      if (/[aá]rvore/.test(n)) return ['Verde oliva / Dourado', 'Verde oliva', 'Dourado', '#6B7A3A', '#C9A227'];
+      return null; };
+    for (const l of c.linhas) {
+      const rg = regra(l.nome); if (!rg) continue;
+      const co = pegaCol(...rg), kNova = chave(c.id, l.id, co.id);
+      st.itens[kNova] = Object.assign({}, st.itens[kNova], { ativo: true });
+      if (unica) { const kVelha = chave(c.id, l.id, unica.id);
+        for (const m of st.movs) if (m.k === kVelha) m.k = kNova;
+        if (st.itens[kVelha]) { if (st.itens[kVelha].min != null) st.itens[kNova].min = st.itens[kVelha].min; delete st.itens[kVelha]; } }
+    }
+    if (unica && !c.linhas.some(l => st.itens[chave(c.id, l.id, unica.id)] && st.itens[chave(c.id, l.id, unica.id)].ativo)) c.colunas = c.colunas.filter(co => co !== unica);
+  }
+  // nos bichinhos clickers a cor é o próprio bichinho: a bolinha fica neutra em vez de lilás
+  const bc = st.categorias.find(x => x.id === 'bichclick');
+  if (bc) for (const co of bc.colunas) if (co.nome === 'Única') co.hex1 = '#F1ECE4';
 }
 /* Versão 16 (22/11/2026): o Polvo articulado você mesma imprime (os outros bichinhos são de fornecedor). */
 function atualizacao16(st) {
@@ -805,6 +834,7 @@ const nomeItem = (c, l, co) => (c.id === 'letras' ? 'Letra ' : '') + l.nome + (c
 
 /* Amostra visual da cor/combinação */
 function amostra(co, texto, grande) {
+  if (co.bicolor && co.hex2) return `<span class="bolinha" title="${esc(co.nome)}" style="background:linear-gradient(135deg, ${esc(co.hex1)} 50%, ${esc(co.hex2)} 50%)${grande ? ';width:34px;height:34px' : ''}"></span>`;
   if (co.hex2) return `<span class="tecla${grande ? ' g' : ''}" style="background:${esc(co.hex1)};color:${esc(co.hex2)}">${esc(texto || 'A')}</span>`;
   return `<span class="bolinha" style="background:${esc(co.hex1)}${grande ? ';width:34px;height:34px' : ''}"></span>`;
 }
@@ -1389,7 +1419,7 @@ function consigoProduzir(c, l, co, fil) {
   const tem = n => fil.has(semAcento(n || '').trim());
   if (c.id === 'letras') return tem(co.base) && tem(co.letra);
   if (co.nome === 'Única') return true;
-  return tem(co.base || co.nome);
+  return tem(co.base || co.nome) && (!co.letra || tem(co.letra));
 }
 function listaEsgotados() {
   calcular();
@@ -1737,14 +1767,14 @@ function telaCadastros() {
   for (const co of c.colunas) {
     h += `<div class="lin-cad" data-col="${co.id}">${amostra(co, 'A', true)}
       <input type="text" value="${esc(co.nome)}" data-cad="colNome" aria-label="Nome">
-      <label class="peq muted">base <input type="color" value="${esc(co.hex1)}" data-cad="colHex1"></label>
-      <label class="peq muted">letra <input type="color" value="${esc(co.hex2 || '#ffffff')}" data-cad="colHex2" ${co.hex2 ? '' : 'disabled'}></label>
+      <label class="peq muted">${c.id === 'letras' ? 'base' : 'cor'} <input type="color" value="${esc(co.hex1)}" data-cad="colHex1"></label>
+      <label class="peq muted">${c.id === 'letras' ? 'letra' : '2ª cor'} <input type="color" value="${esc(co.hex2 || '#ffffff')}" data-cad="colHex2" ${co.hex2 ? '' : 'disabled'}></label>
       <label class="peq"><input type="checkbox" data-cad="colDuas" ${co.hex2 ? 'checked' : ''}> duas cores</label>
       <button class="btn mini perigo" data-a="excluirCol" data-id="${co.id}" title="Excluir">Excluir</button></div>`;
   }
   h += `<div class="lin-cad" style="border:0;margin-top:6px">
       <select id="novaBase">${CORES.map(x => `<option>${x[0]}</option>`).join('')}<option value="__">Outra…</option></select>
-      ${c.id === 'letras' || c.colunas.some(x => x.hex2) ? `<span class="muted">+ letra</span><select id="novaLetra"><option value="">(sem 2ª cor)</option>${CORES.map(x => `<option>${x[0]}</option>`).join('')}</select>` : ''}
+      <span class="muted">${c.id === 'letras' ? '+ letra' : '+ 2ª cor (opcional)'}</span><select id="novaLetra"><option value="">(sem 2ª cor)</option>${CORES.map(x => `<option>${x[0]}</option>`).join('')}</select>
       <button class="btn mini prim" data-a="novaCol">+ Adicionar ${c.id === 'letras' ? 'combinação' : 'cor'}</button></div></div>`;
 
   // Linhas
@@ -3629,7 +3659,7 @@ document.addEventListener('click', async e => {
       const le = $('#novaLetra') ? $('#novaLetra').value : '';
       const nome = le ? base + ' / ' + le : base;
       if (c.colunas.some(x => x.nome.toLowerCase() === nome.toLowerCase())) { toast('Essa cor já existe.'); break; }
-      acao('nova cor ' + nome, () => c.colunas.push({ id: 'c' + uid(), nome, base, letra: le, hex1: hexDaCor(base), hex2: le ? hexDaCor(le) : '' })); break; }
+      acao('nova cor ' + nome, () => c.colunas.push({ id: 'c' + uid(), nome, base, letra: le, hex1: hexDaCor(base), hex2: le ? hexDaCor(le) : '', bicolor: !!le && c.id !== 'letras' })); break; }
     case 'excluirCol': { const c = cat(UI.cadCat), co = c.colunas.find(x => x.id === b.dataset.id);
       const tot = c.linhas.reduce((s, l) => s + (ativo(c, l.id, co.id) ? (Q[chave(c.id, l.id, co.id)] || 0) : 0), 0);
       if (await confirmar('Excluir cor?', `A coluna <b>${esc(co.nome)}</b> vai sair de ${esc(c.nome)}${tot ? ` (soma <b>${tot}</b> peças em estoque)` : ''}. O histórico fica guardado.`, 'Excluir', true))
@@ -3684,7 +3714,7 @@ document.addEventListener('change', async e => {
     if (t.dataset.cad === 'colNome' && v) acao('renomear cor', () => { co.nome = v; const p = v.split('/').map(s => s.trim()); co.base = p[0]; co.letra = p[1] || ''; });
     if (t.dataset.cad === 'colHex1') acao('cor de ' + co.nome, () => { co.hex1 = v; });
     if (t.dataset.cad === 'colHex2') acao('cor de ' + co.nome, () => { co.hex2 = v; });
-    if (t.dataset.cad === 'colDuas') acao('cor de ' + co.nome, () => { co.hex2 = v ? (co.letra ? hexDaCor(co.letra) : '#FFFFFF') : ''; });
+    if (t.dataset.cad === 'colDuas') acao('cor de ' + co.nome, () => { co.hex2 = v ? (co.letra ? hexDaCor(co.letra) : '#FFFFFF') : ''; if (UI.cadCat !== 'letras') co.bicolor = !!v; });
     if (t.dataset.cad === 'linNome' && v && l) acao('renomear ' + l.nome, () => { l.nome = v; });
     const nv = v === '' ? null : Math.max(0, num(v));
     if (t.dataset.cad === 'linPeso' && l) acao('peso de ' + l.nome, () => { l.peso = nv; });

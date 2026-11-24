@@ -1324,7 +1324,7 @@ function lerPedido(texto) {
   const T = String(texto || '').replace(/\r/g, '');
   if (!T.trim()) { VD.avisos = ['Cole a mensagem do pedido antes de tocar em Reconhecer.']; return; }
   const linhas = T.split('\n');
-  let mult = 1, pecas = 0, chaveiros = 0;
+  let mult = 1, pecas = 0, chaveiros = 0, clickers = 0;
   const switchCat = cat('switches');
   for (const raw of linhas) {
     const ln = raw.trim();
@@ -1341,6 +1341,13 @@ function lerPedido(texto) {
     else if ((m = ln.match(/^Pagamento:\s*(.+)$/i))) VD.forma = m[1].trim();
     else if ((m = ln.match(/^Nome:\s*(.+)$/i))) VD.cliente = m[1].trim();
     else if ((m = ln.match(/^Obs\.?:\s*(.+)$/i))) VD.obs = m[1].trim();
+  }
+  // switch da cor que tem mais no estoque (dá para trocar)
+  function addSwitch(n) {
+    if (!switchCat || !n) return null;
+    const lin = switchCat.linhas[0], cols = switchCat.colunas.filter(co => ativo(switchCat, lin.id, co.id)).sort((a, b) => (Q[chave(switchCat.id, lin.id, b.id)] || 0) - (Q[chave(switchCat.id, lin.id, a.id)] || 0));
+    if (!cols[0]) return null;
+    const k = chave(switchCat.id, lin.id, cols[0].id); add(k, n); return k;
   }
   function lerParte(txt, q, solto) {
     if (solto) VD.__ultSolto = [];
@@ -1369,9 +1376,8 @@ function lerPedido(texto) {
         if (campos['caixeta']) { const co = acharCol(cx, campos['caixeta']); if (co) add(chave(cx.id, ond.id, co.id), letras.length * q); else avisos.push(`Não achei a caixeta “${campos['caixeta']}”.`); }
         else if (campos['caixetas']) for (const p of campos['caixetas'].split(',')) { const mm = p.trim().match(/^([A-Za-z])\s+(.+)$/); const co = mm && acharCol(cx, mm[2]); if (co) add(chave(cx.id, ond.id, co.id), q); }
       }
-      // um switch por letra: usa a cor de switch que tem mais no estoque (dá para trocar)
-      if (switchCat && letras.length) { const lin = switchCat.linhas[0]; const cols = switchCat.colunas.filter(co => ativo(switchCat, lin.id, co.id)).sort((a, b) => (Q[chave(switchCat.id, lin.id, b.id)] || 0) - (Q[chave(switchCat.id, lin.id, a.id)] || 0));
-        if (cols[0]) add(chave(switchCat.id, lin.id, cols[0].id), letras.length * q); }
+      // um switch por letra
+      addSwitch(letras.length * q);
       chaveiros += q; pecas++;
       return;
     }
@@ -1380,6 +1386,7 @@ function lerPedido(texto) {
       const bc = cat('bichclick'), bd = cat('baldinhos');
       const lb = acharLin(bc, campos['bichinho'] || ''); if (lb) { const co = bc.colunas.find(x => ativo(bc, lb.id, x.id)) || bc.colunas[0]; add(chave(bc.id, lb.id, co.id), q); lembra(chave(bc.id, lb.id, co.id), q); } else avisos.push(`Não achei o bichinho “${campos['bichinho'] || ''}”.`);
       const cb = acharCol(bd, campos['baldinho'] || ''); if (bd && cb) { add(chave(bd.id, bd.linhas[0].id, cb.id), q); lembra(chave(bd.id, bd.linhas[0].id, cb.id), q); } else avisos.push(`Não achei o baldinho “${campos['baldinho'] || ''}”.`);
+      { const ks = addSwitch(q); if (ks) { lembra(ks, q); clickers += q; } }   // cada clicker leva 1 switch
       pecas++; return;
     }
     // articulados e outros: procura pelo nome do produto em todas as categorias
@@ -1393,7 +1400,7 @@ function lerPedido(texto) {
     }
     avisos.push(`Não reconheci “${txt.slice(0, 60)}”. Adicione na mão, se sair do estoque.`);
   }
-  if (chaveiros) avisos.unshift(`Confira: coloquei ${plural(chaveiros, 'chaveiro', 'chaveiros')} com switch da cor que você tem mais. Lembre de adicionar o pingente que saiu (formato e cor).`);
+  if (chaveiros || clickers) avisos.unshift(`Confira a cor do switch: usei a que você tem mais (1 por letra e 1 por bichinho clicker).${chaveiros ? ' Se foi com cordinha, adicione também o pingente que saiu.' : ''}`);
   if (!pecas) avisos.unshift('Não encontrei peças nesse texto. Ele precisa ser a mensagem do pedido que o catálogo manda.');
   VD.avisos = avisos; VD.colar = false; delete VD.__ultSolto;
 }
@@ -2673,7 +2680,7 @@ function simular(r, n, modo = 'pedido', precoManual) {
   s.descMax = dm > 0 && s.totalSem > 0 ? Math.max(0, 1 - s.custo / dm / s.totalSem) : null;
   return s;
 }
-/* Combo de até 3 produtos (aba "Combos") */
+/* Combo com quantos produtos quiser (aba "Combos") */
 function calcCombo(cb, modo = 'pedido') {
   const P = S.param, o = { itens: [] };
   let algumEmb = false;
@@ -2847,16 +2854,16 @@ function telaDescontos() {
 function telaCombos() {
   const lista = produtos();
   const opts = sel => `<option value="">— produto —</option>` + lista.map(p => `<option value="${esc(p.pid)}" ${p.pid === sel ? 'selected' : ''}>${esc(p.nome)}${p.c && p.l ? ' (' + esc(p.c.nome) + ')' : ''}</option>`).join('');
-  let h = `<div class="cartao"><div class="linha-btns" style="justify-content:space-between"><div><h2 style="margin:0">Combos e kits</h2><span class="peq muted">Até 3 produtos por combo. O combo vai numa embalagem só.</span></div>
+  let h = `<div class="cartao"><div class="linha-btns" style="justify-content:space-between"><div><h2 style="margin:0">Combos e kits</h2><span class="peq muted">Quantas peças quiser: ao escolher uma, aparece espaço para a próxima. O combo vai numa embalagem só.</span></div>
     <button class="btn prim" data-a="comboNovo">+ Novo combo</button></div></div>`;
   if (!S.combos.length) return h + `<div class="cartao muted">Nenhum combo ainda. Exemplo: bichinho clicker + baldinho, ou chaveiro + cordinha.</div>`;
   for (const cb of S.combos) {
     const o = calcCombo(cb), sm = situacaoMargem(o.margem);
     h += `<div class="cartao" data-cb="${cb.id}"><div class="linha-btns" style="justify-content:space-between"><input type="text" data-cbc="nome" value="${esc(cb.nome)}" style="font-weight:700;font-size:1.05rem;flex:1;max-width:340px">
       <button class="btn mini perigo" data-a="comboExcluir" data-id="${cb.id}">Excluir</button></div>
-      ${[0, 1, 2].map(i => { const it = cb.itens[i] || {}; return `<div class="ed-linha"><label class="mini-campo">Produto ${i + 1}<select data-cbi="${i}" data-c="pid">${opts(it.pid)}</select></label>
+      ${[...cb.itens, {}].map((it, i) => { return `<div class="ed-linha"><label class="mini-campo">${it.pid ? 'Produto ' + (i + 1) : '+ Adicionar produto'}<select data-cbi="${i}" data-c="pid">${opts(it.pid)}</select></label>
         <label class="mini-campo">Qtd<input type="text" inputmode="numeric" data-cbi="${i}" data-c="q" value="${esc(it.q ?? (it.pid ? 1 : ''))}" style="width:60px"></label>
-        ${it.pid && acharProduto(it.pid) ? `<span class="peq muted" style="padding-bottom:8px">${fmtR(calcPreco(fichaDe(it.pid)).preco || 0)} cada${fichaPreenchida(fichaDe(it.pid)) ? '' : ' · <span style="color:var(--baixo)">ficha vazia</span>'}</span>` : ''}</div>`; }).join('')}
+        ${it.pid && acharProduto(it.pid) ? `<span class="peq muted" style="padding-bottom:8px">${fmtR(calcPreco(fichaDe(it.pid)).preco || 0)} cada${fichaPreenchida(fichaDe(it.pid)) ? '' : ' · <span style="color:var(--baixo)">ficha vazia</span>'}</span>` : ''}${it.pid ? `<button class="btn mini borda" data-a="comboTirar" data-id="${cb.id}" data-i="${i}" aria-label="Tirar do combo">✕</button>` : ''}</div>`; }).join('')}
       <div class="linha-btns" style="align-items:end;margin-top:10px"><label class="mini-campo">Preço do combo (R$)<input type="text" inputmode="decimal" data-cbc="preco" value="${fmtIn(cb.preco)}" placeholder="${fmtN(o.normal, 2)}" style="width:110px"></label></div>
       ${o.itens.length ? `<div class="numeros" style="margin-top:12px;margin-bottom:0">
         <div class="numero"><span class="muted peq">Preço normal (soma)</span><b style="font-size:1.3rem">${fmtR(o.normal)}</b></div>
@@ -2894,6 +2901,7 @@ document.addEventListener('click', async e => {
     case 'ficha': abrirFicha(b.dataset.pid); break;
     case 'prodNovo': { const n = await perguntar('Produto só para preço', 'Nome (ex.: Luva, Kit festa)'); if (n) { const id = uid(); acao('novo produto ' + n, () => { S.produtosX.push({ id, nome: n }); }); abrirFicha('x:' + id); } break; }
     case 'comboNovo': acao('novo combo', () => { S.combos.push({ id: uid(), nome: 'Combo ' + (S.combos.length + 1), itens: [], preco: null }); }); break;
+    case 'comboTirar': { const cb = S.combos.find(x => x.id === b.dataset.id); if (cb) acao('tirar do combo ' + cb.nome, () => { cb.itens.splice(+b.dataset.i, 1); }); break; }
     case 'comboExcluir': { const cb = S.combos.find(x => x.id === b.dataset.id);
       if (await confirmar('Excluir combo?', `O combo <b>${esc(cb.nome)}</b> vai sair da lista. Dá para usar “Desfazer” logo em seguida.`, 'Excluir', true)) acao('excluir combo', () => { S.combos = S.combos.filter(x => x !== cb); }); break; }
     case 'parExemplo': if (await confirmar('Voltar aos valores de exemplo?', 'Todos os parâmetros voltam aos números de exemplo da planilha. Dá para usar “Desfazer” logo em seguida.', 'Voltar', true))
@@ -2914,7 +2922,8 @@ document.addEventListener('change', e => {
       if (t.dataset.cbc === 'nome') cb.nome = t.value.trim() || cb.nome;
       if (t.dataset.cbc === 'preco') cb.preco = t.value.trim() === '' ? null : num(t.value);
       if (t.dataset.cbi) { const i = +t.dataset.cbi; while (cb.itens.length <= i) cb.itens.push({ pid: '', q: 1 }); const it = cb.itens[i];
-        if (t.dataset.c === 'pid') { it.pid = t.value; if (!num(it.q)) it.q = 1; } else it.q = num(t.value); }
+        if (t.dataset.c === 'pid') { it.pid = t.value; if (!num(it.q)) it.q = 1; } else it.q = num(t.value);
+        cb.itens = cb.itens.filter(x => x.pid); }
     });
   }
 });

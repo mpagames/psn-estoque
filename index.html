@@ -1389,6 +1389,25 @@ function lerPedido(texto) {
       { const ks = addSwitch(q); if (ks) { lembra(ks, q); clickers += q; } }   // cada clicker leva 1 switch
       pecas++; return;
     }
+    // Natal: "Kit de Natal" (Sagrada + árvore + porta-velas + bandeja) e "Sagrada Família" avulsa, em dois modelos
+    if (np.startsWith('kit de natal') || np === 'sagrada familia') {
+      const nt = cat('natal'), modelo = semAc(campos['modelo'] || campos['sagrada familia'] || '');
+      const baixa = (rotulo, re, cor) => {
+        const l = nt && nt.linhas.find(x => re.test(semAc(x.nome)));
+        const cols = l ? nt.colunas.filter(co => ativo(nt, l.id, co.id)) : [];
+        const co = cols.find(x => semAc(x.nome).startsWith(cor)) || (cols.length === 1 ? cols[0] : null);
+        if (!co) { avisos.push(l ? `“${rotulo}”: escolha a cor na mão.` : `“${rotulo}” não está cadastrada no estoque de Natal, então não saiu.`); return; }
+        const k = chave(nt.id, l.id, co.id); add(k, q); lembra(k, q);
+      };
+      if (modelo.includes('manjedoura')) baixa('Presépio Sagrada Família', /presepio/, 'bege');
+      else if (modelo.startsWith('em pe')) baixa('Sagrada Família em pé', /em pe\b/, 'bege');
+      else avisos.push('Não achei o modelo da Sagrada Família. Adicione na mão.');
+      if (np.startsWith('kit')) {
+        baixa('Árvore', /arvore/, 'verde'); baixa('Porta-velas', /porta.?velas?/, 'marrom'); baixa('Bandeja', /bandeja/, 'marrom');
+        avisos.push('O kit leva uma velinha de LED. Se você controla as velas, desconte na mão.');
+      }
+      pecas++; return;
+    }
     // articulados e outros: procura pelo nome do produto em todas as categorias
     for (const c of S.categorias) {
       if (['letras', 'caixetas', 'switches', 'cordinhas', 'baldinhos'].includes(c.id)) continue;
